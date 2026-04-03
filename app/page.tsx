@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -33,7 +33,7 @@ export default function LoginPage() {
       return
     }
 
-    sessionStorage.setItem('employee', JSON.stringify(data))
+    localStorage.setItem('employee', JSON.stringify(data))
     router.push('/home')
   }
 
@@ -82,3 +82,4 @@ export default function LoginPage() {
     </div>
   )
 }
+
