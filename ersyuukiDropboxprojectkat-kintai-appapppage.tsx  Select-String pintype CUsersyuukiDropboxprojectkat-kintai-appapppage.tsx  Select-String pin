@@ -1,0 +1,35 @@
+[1mdiff --git a/app/home/page.tsx b/app/home/page.tsx[m
+[1mindex 929e0ca..4584bfb 100644[m
+[1m--- a/app/home/page.tsx[m
+[1m+++ b/app/home/page.tsx[m
+[36m@@ -197,7 +197,7 @@[m [mexport default function HomePage() {[m
+           <KatLogo />[m
+           <span style={{ fontSize: 14, fontWeight: 900, color: T.text, letterSpacing: "1.5px" }}>KAT</span>[m
+           <span style={{ fontSize: 11, fontWeight: 400, color: T.textSec, letterSpacing: "1px" }}>WORLD</span>[m
+[31m-          <span style={{ fontSize: 12, color: T.textMuted, marginLeft: 2 }}>勤怠管理</span>[m
+[32m+[m[32m          <span style={{ fontSize: 12, color: T.textMuted, marginLeft: 2 }}>社内ポータル</span>[m
+         </div>[m
+         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>[m
+           <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{employee.full_name}</span>[m
+[1mdiff --git a/app/page.tsx b/app/page.tsx[m
+[1mindex 36528b5..d69db76 100644[m
+[1m--- a/app/page.tsx[m
+[1m+++ b/app/page.tsx[m
+[36m@@ -40,7 +40,7 @@[m [mexport default function LoginPage() {[m
+         <div className="bg-white border-b-2 border-gray-100 px-4 py-3 flex items-center justify-between">[m
+           <div className="flex items-center gap-3">[m
+             <img src="/KAT_logo_-05.png" alt="KAT WORLD" className="h-8" />[m
+[31m-            <span className="text-xs text-gray-400">勤怠管理</span>[m
+[32m+[m[32m            <span className="text-xs text-gray-400">社内ポータル</span>[m
+           </div>[m
+           <div className="flex items-center gap-3">[m
+             <span className="text-sm font-bold text-gray-800">{employee.full_name}</span>[m
+[36m@@ -128,7 +128,7 @@[m [mexport default function LoginPage() {[m
+       <div className="bg-white rounded shadow-sm border border-gray-100 p-8 w-full max-w-sm">[m
+         <div className="text-center mb-8">[m
+           <img src="/KAT_logo_-05.png" alt="KAT WORLD" className="h-16 mx-auto mb-4" />[m
+[31m-          <p className="text-gray-400 text-xs tracking-widest">勤怠管理システム</p>[m
+[32m+[m[32m          <p className="text-gray-400 text-xs tracking-widest">社内ポータルシステム</p>[m
+         </div>[m
+ [m
+         <div className="space-y-4">[m

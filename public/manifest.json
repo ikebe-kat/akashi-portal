@@ -1,0 +1,18 @@
+{
+  "name": "KAT WORLD 社内ポータル",
+  "short_name": "KAT社内ポータル",
+  "description": "KAT WORLD 社内ポータル",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#00AFCC",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/katkintai.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
