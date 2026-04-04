@@ -27,7 +27,7 @@ const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "supe
   { id: "employee_manage", label: "従業員管理", visibleTo: "super_only" },
   { id: "settings", label: "設定", visibleTo: "owner_only" },
 ];
-const OWNER_CODES = ["D02", "D67"];
+const OWNER_CODES = ["D02", "D18", "D67"];
 const SUPER_CODES = ["D02", "D18", "D67"];
 const DOW = ["日","月","火","水","木","金","土"];
 const fmTime = (t: string | null) => t ? t.slice(0,5) : "—";
@@ -1286,7 +1286,9 @@ export default function AdminTab({ employee }: { employee: any }) {
   const myCode = employee?.employee_code || "";
   const isOwner = OWNER_CODES.includes(myCode);
   const isSuper = SUPER_CODES.includes(myCode);
+  const isIwanaga = myCode === "D49";
   const visibleTabs = ALL_SUB_TABS.filter(t => {
+    if (isIwanaga) return t.id === "documents" || t.id === "employee_manage" || t.id === "individual" || t.id === "daily" || t.id === "monthly";
     if (t.visibleTo === "owner_only") return isOwner;
     if (t.visibleTo === "owner_or_kondo") return isOwner;
     if (t.visibleTo === "super_only") return isOwner || isSuper;
