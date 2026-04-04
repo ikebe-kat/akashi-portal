@@ -16,7 +16,7 @@ export default function LoginPage() {
     const code = employeeCode.toUpperCase().trim()
     const { data, error: dbError } = await supabase
       .from('employees')
-      .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, pin')
+      .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, pin, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, stores(store_name)')
       .eq('employee_code', code)
       .eq('company_id', 'e85e40ac-71f7-4918-b2fc-36d877337b74')
       .maybeSingle()
@@ -82,4 +82,5 @@ export default function LoginPage() {
     </div>
   )
 }
+
 
