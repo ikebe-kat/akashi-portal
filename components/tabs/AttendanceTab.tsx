@@ -505,7 +505,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
 
 
             {/* 申請中の場合 */}
-            {(modalDay.pending || modalDay.rejected) && !modalDay.reason ? (() => {
+            {modalDay.pending && !modalDay.reason ? (() => {
               const lr = leaveRequests.find((r: any) => r.attendance_date === modalDay.dateStr);
               return lr ? (
                 <div style={{ marginBottom: 20 }}>
@@ -529,6 +529,15 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                 </div>
               ) : null;
             })() : <>
+            {modalDay.rejected && !modalDay.reason && (() => {
+              const rlr = leaveRequests.find((r: any) => r.status === "却下" && r.attendance_date === modalDay.dateStr);
+              return rlr ? (
+                <div style={{ padding: "10px 14px", borderRadius: "6px", backgroundColor: "#FEF2F2", border: "1px solid #EF4444", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#991B1B", marginBottom: 4 }}>前回の有給申請が却下されました</div>
+                  <div style={{ fontSize: 12, color: "#991B1B" }}>却下理由: {rlr.reject_reason}</div>
+                </div>
+              ) : null;
+            })()}
             {/* プレビュー */}
             <div style={{ padding: "10px 14px", borderRadius: "6px", backgroundColor: previewReason ? "#ECFDF5" : T.bg, marginBottom: 20, minHeight: 40, display: "flex", alignItems: "center" }}>
               {previewReason ? <ReasonBadges reason={previewReason} /> : <span style={{ fontSize: 13, color: T.textMuted }}>事由を選択してください</span>}
