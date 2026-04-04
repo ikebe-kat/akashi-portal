@@ -198,7 +198,7 @@ export default function HomePage() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{employee.full_name}</span>
-          <button onClick={() => { localStorage.removeItem("employee"); window.location.href = "https://kat-kintai-app.vercel.app/portal"; }} style={{ padding: "4px 12px", borderRadius: "4px", border: "1px solid #06b6d4", backgroundColor: "#fff", color: "#06b6d4", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>会社切替</button>
+          {employee.portal_group_id && <button onClick={() => { localStorage.removeItem("employee"); window.location.href = "https://kat-kintai-app.vercel.app/portal"; }} style={{ padding: "4px 12px", borderRadius: "4px", border: "1px solid #06b6d4", backgroundColor: "#fff", color: "#06b6d4", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>会社切替</button>}
           <button
             onClick={handleLogout}
             style={{
