@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 import { useState, useCallback } from "react";
 import { T } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 
 const REASON_MAP: Record<string, string> = {
-  "希望休（全日）": "公休", "午前希望休": "公前", "午後希望休": "公後",
+  "選択休（全日）": "公休", "午前選択休": "公前", "午後選択休": "公後",
   "有給（全日）": "有休", "午前有給": "前休", "午後有給": "後休", "休日出勤": "休出",
 };
 function mapReason(r: string | null): string {
@@ -142,7 +142,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
               cR++;
               const r = a.reason;
               if (r.includes("有給")) cY += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
-              if (r.includes("希望休")) cK += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+              if (r.includes("選択休")) cK += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
               if (r === "欠勤") cKk++;
               if (r.includes("出張") || r === "直行" || r === "直帰" || r === "直直") cSh++;
               if (r.includes("代休")) cD += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -168,7 +168,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         });
       }
 
-      /* ── 合計表CSV（出張追加、他休=希望休+公休集計）── */
+      /* ── 合計表CSV（出張追加、他休=選択休+公休集計）── */
       setProgress("勤務合計表CSV生成中...");
       let sCsv = `【勤務合計表】\r\n${hdr}\r\n所属CD：指定なし\r\n社員CD：指定なし\r\n`;
       sCsv += `社員CD,氏名        ,    勤務,勤務時間,    有休,    出張,    欠勤,    他休,    遅刻,    遅刻,    早退,    早退,私用外出,早出残業,普通残業,深夜残業,特別残業,法外普通,法外深夜,法内普通,法内深夜,超過不足\r\n`;
@@ -187,7 +187,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
             if (r.includes("出張") || r === "直行" || r === "直帰" || r === "直直") sh++;
             if (r === "欠勤") k++;
-            if (r.includes("希望休")) oth += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+            if (r.includes("選択休")) oth += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
           }
           if (a.late_minutes && a.late_minutes > 0) { lc++; lm += a.late_minutes; }
           if (a.early_leave_minutes && a.early_leave_minutes > 0) { ec++; em2 += a.early_leave_minutes; }

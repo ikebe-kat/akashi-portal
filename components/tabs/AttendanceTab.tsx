@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuPart } from "@/lib/constants";
@@ -193,8 +193,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     }, 0);
     const ku = allDays.reduce((s, d) => {
       if (!d.reason) return s;
-      if (d.reason.includes("希望休（全日）")) return s + 1;
-      if (d.reason.includes("午前希望休") || d.reason.includes("午後希望休")) return s + 0.5;
+      if (d.reason.includes("選択休（全日）")) return s + 1;
+      if (d.reason.includes("午前選択休") || d.reason.includes("午後選択休")) return s + 0.5;
       return s;
     }, 0);
     const tw = allDays.reduce((s, d) => s + d.wm, 0);
@@ -212,9 +212,9 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       const parts = day.reason.split("+").map((s: string) => s.trim());
       const kinmuBuf: string[] = [];
       for (const p of parts) {
-        if (p === "有給（全日）" || p === "希望休（全日）") { setSelZenjitsu(p); continue; }
-        if (p === "午前有給" || p === "午前希望休") { setSelGozen(p); continue; }
-        if (p === "午後有給" || p === "午後希望休") { setSelGogo(p); continue; }
+        if (p === "有給（全日）" || p === "選択休（全日）") { setSelZenjitsu(p); continue; }
+        if (p === "午前有給" || p === "午前選択休") { setSelGozen(p); continue; }
+        if (p === "午後有給" || p === "午後選択休") { setSelGogo(p); continue; }
         const dk = parseDaikyu(p);
         if (dk) {
           if (dk.type === "full") { setDaikyuMode("full"); setDaikyuDate(dk.date); }
@@ -308,18 +308,18 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       if (totalRemaining < yukyuDays) { showAlert(`有給残が不足しています（残: ${totalRemaining}日）`); return; }
     }
 
-    /* 希望休上限チェック */
+    /* 選択休上限チェック */
     if (!isKoukyuPart(employee?.employee_code || "")) {
-      const kibouDays = (selZenjitsu === "希望休（全日）" ? 1 : 0) + (selGozen === "午前希望休" ? 0.5 : 0) + (selGogo === "午後希望休" ? 0.5 : 0);
+      const kibouDays = (selZenjitsu === "選択休（全日）" ? 1 : 0) + (selGozen === "午前選択休" ? 0.5 : 0) + (selGogo === "午後選択休" ? 0.5 : 0);
       if (kibouDays > 0 && kibouQuota > 0) {
         const usedKibou = allDays.reduce((s, d) => {
           if (!d.reason || d.dateStr === modalDay.dateStr) return s;
-          if (d.reason.includes("希望休（全日）")) return s + 1;
-          if (d.reason.includes("午前希望休") || d.reason.includes("午後希望休")) return s + 0.5;
+          if (d.reason.includes("選択休（全日）")) return s + 1;
+          if (d.reason.includes("午前選択休") || d.reason.includes("午後選択休")) return s + 0.5;
           return s;
         }, 0);
         const remaining = kibouQuota - usedKibou;
-        if (remaining < kibouDays) { showAlert(`希望休の上限に達しています（残: ${remaining}日 / 上限: ${kibouQuota}日）`); return; }
+        if (remaining < kibouDays) { showAlert(`選択休の上限に達しています（残: ${remaining}日 / 上限: ${kibouQuota}日）`); return; }
       }
     }
 
@@ -332,7 +332,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     setSaving(false);
     if (!error) {
       setModalDay(null); loadData();
-      if (previewReason && (previewReason.includes("有給") || previewReason.includes("希望休") || previewReason.includes("代休") || previewReason.includes("出張"))) {
+      if (previewReason && (previewReason.includes("有給") || previewReason.includes("選択休") || previewReason.includes("代休") || previewReason.includes("出張"))) {
         const storeName = employee.store_name || "";
         fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -354,7 +354,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       setSaving(false);
       if (!error) {
         setModalDay(null); loadData();
-        if (modalDay.reason && (modalDay.reason.includes("有給") || modalDay.reason.includes("希望休") || modalDay.reason.includes("代休") || modalDay.reason.includes("出張"))) {
+        if (modalDay.reason && (modalDay.reason.includes("有給") || modalDay.reason.includes("選択休") || modalDay.reason.includes("代休") || modalDay.reason.includes("出張"))) {
           const storeName = employee.store_name || "";
           fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -383,7 +383,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         <SC l="出勤日数" v={sum.wd} u="日" /><SC l="休日" v={sum.hd} u="日" />
         <SC l="欠勤" v={sum.ab} u="日" c={sum.ab > 0 ? T.danger : T.text} />
         <SC l="有給取得" v={sum.yu} u="日" c={T.yukyuBlue} />
-        <SC l={isKoukyuPart(employee?.employee_code || "") ? "公休残" : "希望休残"} v={isKoukyuPart(employee?.employee_code || "") ? "∞" : sum.kr} u="日" c={!isKoukyuPart(employee?.employee_code || "") && sum.kr <= 0 ? T.danger : T.text} />
+        <SC l={isKoukyuPart(employee?.employee_code || "") ? "公休残" : "選択休残"} v={isKoukyuPart(employee?.employee_code || "") ? "∞" : sum.kr} u="日" c={!isKoukyuPart(employee?.employee_code || "") && sum.kr <= 0 ? T.danger : T.text} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 16 }}>
         <SC l="月間総労働" v={fmtMin(sum.tw)} u="h" />
@@ -461,15 +461,15 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             <Dot color={T.holidayRed} label="休暇申請" />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
               <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
-              <Chip label={displayChipLabel("希望休（全日）", employee?.employee_code || "")} selected={selZenjitsu === "希望休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("希望休（全日）")} />
+              <Chip label={displayChipLabel("選択休（全日）", employee?.employee_code || "")} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
               <Chip label="午前有給" selected={selGozen === "午前有給"} color={T.yukyuBlue} onClick={() => toggleGozen("午前有給")} />
-              <Chip label={displayChipLabel("午前希望休", employee?.employee_code || "")} selected={selGozen === "午前希望休"} color={T.kibouYellow} onClick={() => toggleGozen("午前希望休")} />
+              <Chip label={displayChipLabel("午前選択休", employee?.employee_code || "")} selected={selGozen === "午前選択休"} color={T.kibouYellow} onClick={() => toggleGozen("午前選択休")} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
               <Chip label="午後有給" selected={selGogo === "午後有給"} color={T.yukyuBlue} onClick={() => toggleGogo("午後有給")} />
-              <Chip label={displayChipLabel("午後希望休", employee?.employee_code || "")} selected={selGogo === "午後希望休"} color={T.kibouYellow} onClick={() => toggleGogo("午後希望休")} />
+              <Chip label={displayChipLabel("午後選択休", employee?.employee_code || "")} selected={selGogo === "午後選択休"} color={T.kibouYellow} onClick={() => toggleGogo("午後選択休")} />
             </div>
 
             <Dot color={T.kinmuGreen} label="勤務申請" />
@@ -543,3 +543,4 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 // ═══════════════════════════════════════════
 // components/tabs/CalendarTab.tsx — カレンダータブ（Supabase接続済み）
 // レスポンシブ対応版: PC=セル110px+右パネル320px / スマホ=右スライドインパネル65%幅
@@ -91,7 +91,7 @@ const ReasonBadges = ({ reason }: { reason: string }) => {
         let bg: string = T.textMuted;
         let c = "#fff";
         if (t.includes("有給")) bg = T.yukyuBlue;
-        else if (t.includes("希望休")) { bg = T.kibouYellow; c = "#78350F"; }
+        else if (t.includes("選択休")) { bg = T.kibouYellow; c = "#78350F"; }
         else if (["出張", "休日出勤", "代休"].some((k) => t.includes(k))) bg = T.kinmuGreen;
         else if (t === "欠勤") bg = "#6B7280";
         return <Badge key={i} bg={bg} color={c}>{t}</Badge>;
@@ -614,7 +614,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
                       {at.slice(0, maxBadges).map((a, j) => {
                         const isYukyu = a.reason.includes("有給");
                         const displayR = displayReason(a.reason, a.emp_code || "") || a.reason;
-                        const isKibou = displayR.includes("希望休") || displayR.includes("公休");
+                        const isKibou = displayR.includes("選択休") || displayR.includes("公休");
                         return (
                           <div key={`a${j}`} style={{
                             fontSize: isMobile ? 10 : 13,
@@ -724,3 +724,4 @@ export default function CalendarTab({ employee }: { employee: any }) {
     </div>
   );
 }
+

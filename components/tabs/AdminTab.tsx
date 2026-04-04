@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, displayReason, displayChipLabel, isKoukyuPart } from "@/lib/constants";
 import { Badge, ReasonBadges } from "@/components/ui";
@@ -162,9 +162,9 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
     const parts = row.reason.split("+").map((s: string) => s.trim());
     const kinmuBuf: string[] = [];
     for (const p of parts) {
-      if (p === "有給（全日）" || p === "希望休（全日）") { setSelZenjitsu(p); continue; }
-      if (p === "午前有給" || p === "午前希望休") { setSelGozen(p); continue; }
-      if (p === "午後有給" || p === "午後希望休") { setSelGogo(p); continue; }
+      if (p === "有給（全日）" || p === "選択休（全日）") { setSelZenjitsu(p); continue; }
+      if (p === "午前有給" || p === "午前選択休") { setSelGozen(p); continue; }
+      if (p === "午後有給" || p === "午後選択休") { setSelGogo(p); continue; }
       const dk = parseDaikyu(p);
       if (dk) {
         if (dk.type === "full") { setDaikyuMode("full"); setDaikyuDate(dk.date); }
@@ -225,8 +225,8 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
         if (totalRemaining < yukyuDays) { alert(`有給残が不足しています（残: ${totalRemaining}日）`); return; }
       }
     }
-    /* 希望休上限チェック */
-    const kibouDays = (selZenjitsu === "希望休（全日）" ? 1 : 0) + (selGozen === "午前希望休" ? 0.5 : 0) + (selGogo === "午後希望休" ? 0.5 : 0);
+    /* 選択休上限チェック */
+    const kibouDays = (selZenjitsu === "選択休（全日）" ? 1 : 0) + (selGozen === "午前選択休" ? 0.5 : 0) + (selGogo === "午後選択休" ? 0.5 : 0);
     if (kibouDays > 0) {
       const { data: empRow } = await supabase.from("employees").select("holiday_pattern, employee_code").eq("employee_code", empCode).maybeSingle();
       if (empRow && empRow.holiday_pattern && !isKoukyuPart(empRow.employee_code)) {
@@ -250,12 +250,12 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
             const usedKibou = (attRows || []).reduce((s: number, r: any) => {
               if (r.attendance_date === row.attendance_date) return s;
               if (!r.reason) return s;
-              if (r.reason.includes("希望休（全日）")) return s + 1;
-              if (r.reason.includes("午前希望休") || r.reason.includes("午後希望休")) return s + 0.5;
+              if (r.reason.includes("選択休（全日）")) return s + 1;
+              if (r.reason.includes("午前選択休") || r.reason.includes("午後選択休")) return s + 0.5;
               return s;
             }, 0);
             const remaining = quota - usedKibou;
-            if (remaining < kibouDays) { alert(`希望休の上限に達しています（残: ${remaining}日 / 上限: ${quota}日）`); return; }
+            if (remaining < kibouDays) { alert(`選択休の上限に達しています（残: ${remaining}日 / 上限: ${quota}日）`); return; }
           }
         }
       }
@@ -297,15 +297,15 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
         <Dot color={T.holidayRed} label="休暇" />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
-          <Chip label={displayChipLabel("希望休（全日）", empCode)} selected={selZenjitsu === "希望休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("希望休（全日）")} />
+          <Chip label={displayChipLabel("選択休（全日）", empCode)} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <Chip label="午前有給" selected={selGozen === "午前有給"} color={T.yukyuBlue} onClick={() => toggleGozen("午前有給")} />
-          <Chip label={displayChipLabel("午前希望休", empCode)} selected={selGozen === "午前希望休"} color={T.kibouYellow} onClick={() => toggleGozen("午前希望休")} />
+          <Chip label={displayChipLabel("午前選択休", empCode)} selected={selGozen === "午前選択休"} color={T.kibouYellow} onClick={() => toggleGozen("午前選択休")} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
           <Chip label="午後有給" selected={selGogo === "午後有給"} color={T.yukyuBlue} onClick={() => toggleGogo("午後有給")} />
-          <Chip label={displayChipLabel("午後希望休", empCode)} selected={selGogo === "午後希望休"} color={T.kibouYellow} onClick={() => toggleGogo("午後希望休")} />
+          <Chip label={displayChipLabel("午後選択休", empCode)} selected={selGogo === "午後選択休"} color={T.kibouYellow} onClick={() => toggleGogo("午後選択休")} />
         </div>
 
         <Dot color={T.kinmuGreen} label="勤務申請" />
@@ -474,7 +474,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
       if (r.is_holiday || r.reason === "公休") { holidays++; return; }
       if (r.reason?.includes("有給（全日）")) { yukyuDays++; return; }
       if (r.reason?.includes("午前有給") || r.reason?.includes("午後有給")) yukyuDays += 0.5;
-      if (r.reason?.includes("希望休（全日）")) return;
+      if (r.reason?.includes("選択休（全日）")) return;
       if (r.reason === "欠勤") { absentDays++; return; }
       if (r.actual_hours != null) { totalMinutes += Math.round(r.actual_hours * 60); workDays++; }
       if (r.scheduled_hours != null) scheduledMinutes += Math.round(r.scheduled_hours * 60);
@@ -630,15 +630,15 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
         <Dot color={T.holidayRed} label="休暇" />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
-          <Chip label="希望休（全日）" selected={selZenjitsu === "希望休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("希望休（全日）")} />
+          <Chip label="選択休（全日）" selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <Chip label="午前有給" selected={selGozen === "午前有給"} color={T.yukyuBlue} onClick={() => toggleGozen("午前有給")} />
-          <Chip label="午前希望休" selected={selGozen === "午前希望休"} color={T.kibouYellow} onClick={() => toggleGozen("午前希望休")} />
+          <Chip label="午前選択休" selected={selGozen === "午前選択休"} color={T.kibouYellow} onClick={() => toggleGozen("午前選択休")} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
           <Chip label="午後有給" selected={selGogo === "午後有給"} color={T.yukyuBlue} onClick={() => toggleGogo("午後有給")} />
-          <Chip label="午後希望休" selected={selGogo === "午後希望休"} color={T.kibouYellow} onClick={() => toggleGogo("午後希望休")} />
+          <Chip label="午後選択休" selected={selGogo === "午後選択休"} color={T.kibouYellow} onClick={() => toggleGogo("午後選択休")} />
         </div>
 
         <Dot color={T.kinmuGreen} label="勤務申請" />
@@ -754,7 +754,7 @@ const DailySub = ({ employee }: { employee: any }) => {
     let total = rows.length, punched = 0, noPunch = 0, onLeave = 0, absent = 0;
     rows.forEach(r => {
       if (r.is_holiday) return;
-      if (r.reason?.includes("有給") || r.reason?.includes("希望休") || r.reason?.includes("代休")) { onLeave++; return; }
+      if (r.reason?.includes("有給") || r.reason?.includes("選択休") || r.reason?.includes("代休")) { onLeave++; return; }
       if (r.reason === "欠勤") { absent++; return; }
       if (r.punch_in && r.punch_out) { punched++; return; }
       if (!r.punch_in && !r.punch_out && !r.reason) { noPunch++; }
@@ -821,7 +821,7 @@ const DailySub = ({ employee }: { employee: any }) => {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 700 }}>
             <thead><tr style={{ backgroundColor: T.primary }}>{[...(selectMode ? ["✓"] : []), "店舗","CD","氏名","出勤","退勤","事由","実労働","所定外","備考",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>{rows.map(r => {
-              const isOff = r.reason?.includes("希望休") || r.reason?.includes("代休") || r.is_holiday;
+              const isOff = r.reason?.includes("選択休") || r.reason?.includes("代休") || r.is_holiday;
               const isYukyu = r.reason?.includes("有給");
               const hasReason = r.reason && r.reason !== "公休";
               return (
@@ -954,8 +954,8 @@ const MonthlySub = ({ employee }: { employee: any }) => {
         if (r.is_holiday || r.reason === "公休") { return; }
         if (r.reason?.includes("有給（全日）")) { yukyuDays++; }
         else if (r.reason?.includes("午前有給") || r.reason?.includes("午後有給")) { yukyuDays += 0.5; }
-        if (r.reason?.includes("希望休（全日）")) { kibouDays++; return; }
-        if (r.reason?.includes("午前希望休") || r.reason?.includes("午後希望休")) { kibouDays += 0.5; }
+        if (r.reason?.includes("選択休（全日）")) { kibouDays++; return; }
+        if (r.reason?.includes("午前選択休") || r.reason?.includes("午後選択休")) { kibouDays += 0.5; }
         if (r.reason === "欠勤") { absences++; return; }
         if (r.actual_hours != null && r.actual_hours > 0) workDays++;
         if (r.actual_hours != null) totalMin += Math.round(Number(r.actual_hours) * 60);
@@ -997,7 +997,7 @@ const MonthlySub = ({ employee }: { employee: any }) => {
       {loading ? (<div style={{ textAlign: "center", padding: "40px", color: T.textMuted, fontSize: 14 }}>読み込み中...</div>) : (
         <div style={{ borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}><div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 860 }}>
-            <thead><tr style={{ backgroundColor: T.primary }}>{["店舗","CD","氏名","出勤","休日","希望休","欠勤","有給","総労働","月所定","所定外","残業","遅刻","早退"].map(h => <th key={h} style={{ padding: "8px 5px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ backgroundColor: T.primary }}>{["店舗","CD","氏名","出勤","休日","選択休","欠勤","有給","総労働","月所定","所定外","残業","遅刻","早退"].map(h => <th key={h} style={{ padding: "8px 5px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.emp_code} style={{ borderBottom: `1px solid ${T.borderLight}`, backgroundColor: r.absences > 0 ? "#FFF5F5" : "#fff" }}>
@@ -1313,3 +1313,4 @@ export default function AdminTab({ employee }: { employee: any }) {
     </div>
   );
 }
+
