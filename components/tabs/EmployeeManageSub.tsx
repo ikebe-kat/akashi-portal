@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { T } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
@@ -366,7 +366,8 @@ export default function EmployeeManageSub({ employee }: { employee: any }) {
     const { data: ed } = await supabase.from("employees")
       .select("id, company_id, store_id, employee_code, full_name, full_name_kana, email, phone, gender, birth_date, hire_date, employment_type, position, department, grade, weekly_work_days, weekly_work_hours, paid_leave_grant_date, work_pattern_code, holiday_pattern, holiday_calendar, role, requires_punch, is_active, postal_code, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, bank_name, bank_branch, bank_account_type, bank_account_number, bank_account_holder, basic_pension_number, employment_insurance_number, photo_url, resigned_at, pin, skills, my_number, insurance_card_requested")
       .eq("company_id", employee.company_id).order("employee_code");
-    setEmps((ed || []).map((e: any) => ({ ...e, store_name: storeMap[e.store_id] || "" })));
+    const HONBU_CODES = ["D02", "D18", "D49", "D67"];
+    setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, store_name: storeMap[e.store_id] || "" })));
     setLoading(false);
   }, [employee?.company_id]);
 
