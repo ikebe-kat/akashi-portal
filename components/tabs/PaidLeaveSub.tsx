@@ -61,14 +61,12 @@ function fmtDate(d: Date): string {
 
 function storeShort(name: string | null) {
   if (!name) return "—";
-  if (name.includes("八代")) return "八代";
-  if (name.includes("健軍")) return "健軍";
-  if (name.includes("大津") || name.includes("菊陽")) return "大津";
-  if (name.includes("本社")) return "本社";
-  if (name.includes("経理") || name.includes("人事") || name.includes("DX")) return "業務部";
-  if (name.includes("御領")) return "御領";
+  if (name.includes("大久保")) return "大久保店";
+  if (name.includes("魚住")) return "魚住店";
+  if (name.includes("本部")) return "本部";
   return name;
 }
+
 
 /* ── 年5日ステータス色 ── */
 const STATUS_STYLE: Record<string, { bg: string; color: string }> = {

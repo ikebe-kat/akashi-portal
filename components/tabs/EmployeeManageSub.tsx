@@ -9,10 +9,10 @@ import NyushaSheetExport from "@/components/tabs/NyushaSheetExport";
 /* ── 選択肢定義（ハンドオフv15準拠） ── */
 /* ══════════════════════════════════════ */
 const EMPLOYMENT_TYPES = ["代表取締役", "正社員", "パート", "特定技能", "技能実習"] as const;
-const HOLIDAY_PATTERNS = ["正社員A","正社員B","正社員C","サービス正社員A","サービス正社員B","上限なし（パート）","経理（12月のみ3日）","人事（月3〜7日）","DX（月2～7日）","鈑金A","鈑金B","なし"] as const;
-const HOLIDAY_CALENDARS = ["サービス","営業フロント","財務経理","人事総務","パート水曜定休","DX","インシュアランス部","鈑金塗装部","代表取締役"] as const;
-const WORK_PATTERNS = ["09:30-18:00","09:30-17:30","09:30-17:00","10:00-17:30","09:30-16:30"] as const;
-const ROLES = ["全店（代表）","全店（専務）","全店（人事）","全店（本部長）","八代店長","健軍店長","鈑金塗装部","一般"] as const;
+const HOLIDAY_PATTERNS = ["正社員", "パート"] as const;
+const HOLIDAY_CALENDARS = ["ダイハツ明石西"] as const;
+const WORK_PATTERNS = ["09:00-18:00"] as const;
+const ROLES = ["super", "admin", "employee"] as const;
 const GENDERS = ["男性", "女性"] as const;
 const BANK_TYPES = ["普通", "当座"] as const;
 const DOC_CATEGORIES = ["履歴書", "免許証", "資格証明書", "契約書", "その他"] as const;
@@ -44,10 +44,10 @@ interface EmpDocRow { id: string; document_name: string; category: string; file_
 /* ── ユーティリティ ── */
 function storeShort(name: string | null) {
   if (!name) return "—";
-  if (name.includes("八代")) return "八代"; if (name.includes("健軍")) return "健軍";
-  if (name.includes("大津") || name.includes("菊陽")) return "大津"; if (name.includes("本社")) return "本社";
-  if (name.includes("経理") || name.includes("人事") || name.includes("DX")) return "業務部";
-  if (name.includes("御領")) return "御領"; return name;
+  if (name.includes("大久保")) return "大久保店"; if (name.includes("魚住")) return "魚住店";
+  if (name.includes("本部")) return "本部";
+  
+  return name;
 }
 
 /* ── スタイル ── */
@@ -61,7 +61,7 @@ const Field = ({ label, children, span }: { label: string; children: React.React
 /* ── 編集モーダル（新規・編集兼用）  ── */
 /* ══════════════════════════════════════ */
 const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Partial<EmpRow> | null; stores: { id: string; name: string }[]; isNew: boolean; onClose: () => void; onSaved: (msg: string) => void; companyId: string }) => {
-  const initial: Record<string, any> = { store_id: "", employee_code: "", full_name: "", full_name_kana: "", email: "", phone: "", gender: "", birth_date: "", hire_date: new Date().toISOString().slice(0, 10), employment_type: "正社員", position: "", department: "", grade: "", weekly_work_days: 5, weekly_work_hours: 40, paid_leave_grant_date: "", work_pattern_code: "09:30-18:00", holiday_pattern: "正社員A", holiday_calendar: "営業フロント", role: "一般", requires_punch: true, postal_code: "", address: "", emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "", bank_name: "", bank_branch: "", bank_account_type: "普通", bank_account_number: "", bank_account_holder: "", basic_pension_number: "", employment_insurance_number: "", pin: "1234", skills: "", my_number: "", insurance_card_requested: false };
+  const initial: Record<string, any> = { store_id: "", employee_code: "", full_name: "", full_name_kana: "", email: "", phone: "", gender: "", birth_date: "", hire_date: new Date().toISOString().slice(0, 10), employment_type: "正社員", position: "", department: "", grade: "", weekly_work_days: 5, weekly_work_hours: 40, paid_leave_grant_date: "", work_pattern_code: "09:30-18:00", holiday_pattern: "正社員A", holiday_calendar: "ダイハツ明石西", role: "一般", requires_punch: true, postal_code: "", address: "", emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "", bank_name: "", bank_branch: "", bank_account_type: "普通", bank_account_number: "", bank_account_holder: "", basic_pension_number: "", employment_insurance_number: "", pin: "1234", skills: "", my_number: "", insurance_card_requested: false };
   if (!isNew && emp) { Object.keys(initial).forEach(k => { const v = (emp as any)[k]; if (v != null) initial[k] = v; }); }
   const [form, setForm] = useState<Record<string, any>>(initial);
   const [saving, setSaving] = useState(false);
@@ -135,7 +135,7 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
         <div style={sectionTitleStyle}>緊急連絡先</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="氏名"><input type="text" value={form.emergency_contact_name} onChange={e => set("emergency_contact_name", e.target.value)} style={inputStyle} /></Field><Field label="電話番号"><input type="tel" value={form.emergency_contact_phone} onChange={e => set("emergency_contact_phone", e.target.value)} style={inputStyle} /></Field><Field label="続柄"><input type="text" value={form.emergency_contact_relation} onChange={e => set("emergency_contact_relation", e.target.value)} placeholder="母" style={inputStyle} /></Field></div>
         <div style={sectionTitleStyle}>銀行口座</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="銀行名"><input type="text" value={form.bank_name} onChange={e => set("bank_name", e.target.value)} placeholder="肥後銀行" style={inputStyle} /></Field><Field label="支店名"><input type="text" value={form.bank_branch} onChange={e => set("bank_branch", e.target.value)} placeholder="大津支店" style={inputStyle} /></Field></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="銀行名"><input type="text" value={form.bank_name} onChange={e => set("bank_name", e.target.value)} placeholder="みなと銀行" style={inputStyle} /></Field><Field label="支店名"><input type="text" value={form.bank_branch} onChange={e => set("bank_branch", e.target.value)} placeholder="大久保支店" style={inputStyle} /></Field></div>
         <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="口座種別"><select value={form.bank_account_type} onChange={e => set("bank_account_type", e.target.value)} style={selectStyle}>{BANK_TYPES.map(v => <option key={v} value={v}>{v}</option>)}</select></Field><Field label="口座番号"><input type="text" value={form.bank_account_number} onChange={e => set("bank_account_number", e.target.value)} style={inputStyle} /></Field><Field label="口座名義"><input type="text" value={form.bank_account_holder} onChange={e => set("bank_account_holder", e.target.value)} placeholder="イケベ ユキ" style={inputStyle} /></Field></div>
         <div style={sectionTitleStyle}>社会保険</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="基礎年金番号"><input type="text" value={form.basic_pension_number} onChange={e => set("basic_pension_number", e.target.value)} style={inputStyle} /></Field><Field label="雇用保険番号"><input type="text" value={form.employment_insurance_number} onChange={e => set("employment_insurance_number", e.target.value)} style={inputStyle} /></Field><Field label="マイナンバー"><input type="text" value={form.my_number} onChange={e => set("my_number", e.target.value)} placeholder="12桁" maxLength={12} style={inputStyle} /></Field></div>

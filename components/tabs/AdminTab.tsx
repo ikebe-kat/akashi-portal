@@ -36,31 +36,24 @@ const fmHours = (n: number) => { const h = Math.floor(Math.abs(n) / 60); const m
 const fmDecimal = (n: number | null) => { if (n == null) return "—"; const tot = Math.round(Math.abs(n) * 60); const h = Math.floor(tot / 60); const m = tot % 60; return `${n < 0 ? "-" : ""}${h}:${String(m).padStart(2,"0")}`; };
 
 function storeShort(name: string | null, dept?: string | null) {
-  if (dept && ["人事", "経理", "DX", "人事総務"].some(d => dept.includes(d))) return "業務部";
   if (!name) return "—";
-  if (name.includes("八代")) return "八代";
-  if (name.includes("健軍")) return "健軍";
-  if (name.includes("大津") || name.includes("菊陽")) return "大津";
-  if (name.includes("本社") || name.includes("経理") || name.includes("人事") || name.includes("DX")) return "業務部";
-  if (name.includes("御領")) return "御領";
+  if (name.includes("大久保")) return "大久保店";
+  if (name.includes("魚住")) return "魚住店";
+  if (name.includes("本部")) return "本部";
   return name;
 }
 
-const HAMAMURA_CODE = "095";
 function matchStoreFilter(emp: EmpOption, filter: string): boolean {
   if (filter === "all") return true;
-  if (emp.code === HAMAMURA_CODE) return filter === "業務部" || filter === "健軍";
   return storeShort(emp.store_name, emp.department) === filter;
 }
 
 const STORE_FILTER_OPTIONS = [
   { value: "all", label: "全店舗" },
-  { value: "八代", label: "八代" },
-  { value: "大津", label: "大津" },
-  { value: "健軍", label: "健軍" },
-  { value: "業務部", label: "業務部" },
-  { value: "御領", label: "御領" },
+  { value: "大久保店", label: "大久保店" },
+  { value: "魚住店", label: "魚住店" },
 ];
+
 
 /* ── 4桁時間入力コンポーネント ── */
 const TimeInput = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) => {
