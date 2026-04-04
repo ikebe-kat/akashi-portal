@@ -158,8 +158,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       setKibouQuota(kibouData?.quota ? Number(kibouData.quota) : 0);
     } else { setKibouQuota(0); }
     const { data: lrData } = await supabase
-      .from("leave_requests").select("attendance_date, end_date, status, reason")
-      .eq("employee_id", employee.id).eq("status", "申請中");
+      .from("leave_requests").select("attendance_date, end_date, status, reason, reject_reason")
+      .eq("employee_id", employee.id).in("status", ["申請中", "却下"]);
     setLeaveRequests(lrData ?? []);
     setLoading(false);
   }, [employee, yr, mo]);
