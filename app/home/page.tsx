@@ -122,7 +122,7 @@ export default function HomePage() {
         });
 
         // 池邉（人事）は未処理申請も加算
-        if (employee.employee_code === "067") {
+        if (employee.employee_code === "D67") {
         if (employee.employee_code === "D67") {
             .select("id", { count: "exact", head: true })
             .eq("company_id", employee.company_id).eq("status", "未処理");

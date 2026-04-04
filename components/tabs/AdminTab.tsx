@@ -27,7 +27,6 @@ const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "supe
   { id: "employee_manage", label: "従業員管理", visibleTo: "super_only" },
   { id: "settings", label: "設定", visibleTo: "owner_only" },
 ];
-const OWNER_CODES = ["002", "067"];
 const OWNER_CODES = ["D02", "D67"];
 const SUPER_CODES = ["D02", "D18", "D67"];
 const DOW = ["日","月","火","水","木","金","土"];
