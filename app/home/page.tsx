@@ -157,7 +157,7 @@ export default function HomePage() {
 
 
   let TABS: { id: TabId; label: string }[];
-  if (perm === "super") {
+  if (perm === "super" && employee.employee_code !== "D67") {
     TABS = [
       { id: "calendar", label: "カレンダー" },
       { id: "roster",   label: "名簿" },
