@@ -157,6 +157,10 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         .eq("pattern_name", employee.holiday_pattern).eq("month", mo).limit(1).maybeSingle();
       setKibouQuota(kibouData?.quota ? Number(kibouData.quota) : 0);
     } else { setKibouQuota(0); }
+    const { data: lrData } = await supabase
+      .from("leave_requests").select("attendance_date, end_date, status, reason")
+      .eq("employee_id", employee.id).eq("status", "申請中");
+    setLeaveRequests(lrData ?? []);
     setLoading(false);
   }, [employee, yr, mo]);
 

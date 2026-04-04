@@ -194,9 +194,9 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
                   <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 600, backgroundColor: sc.bg, color: sc.color }}>{req.status}</span>
                 </div>
 
-                <div style={{ marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{fmtDate(req.attendance_date)}</span>
-                  <span style={{ marginLeft: 8 }}><ReasonBadges reason={req.reason} /></span>
+                <div style={{ marginBottom: 10, padding: "10px 12px", backgroundColor: "#F8FAFC", borderRadius: 6 }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text, marginBottom: 4 }}>{fmtDate(req.attendance_date)}<span style={{ fontSize: 13, fontWeight: 400, color: T.textSec, marginLeft: 6 }}>({["日","月","火","水","木","金","土"][new Date(req.attendance_date).getDay()]})</span></div>
+                  <ReasonBadges reason={req.reason} />
                 </div>
 
                 <div style={{ fontSize: 13, color: T.text, marginBottom: 6, padding: "8px 10px", backgroundColor: "#EFF6FF", borderRadius: 6, borderLeft: "3px solid #3B82F6" }}>
@@ -248,3 +248,4 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     </div>
   );
 }
+
