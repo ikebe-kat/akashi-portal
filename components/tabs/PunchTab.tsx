@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -300,9 +300,9 @@ export default function PunchTab({ employee }: { employee: any }) {
       const parts = todayRecord.reason.split('+').map((s: string) => s.trim())
       const kinmuBuf: string[] = []
       for (const p of parts) {
-        if (p === '有給（全日）' || p === '希望休（全日）') { setSelZenjitsu(p); continue }
-        if (p === '午前有給' || p === '午前希望休') { setSelGozen(p); continue }
-        if (p === '午後有給' || p === '午後希望休') { setSelGogo(p); continue }
+        if (p === '有給（全日）' || p === '選択休（全日）') { setSelZenjitsu(p); continue }
+        if (p === '午前有給' || p === '午前選択休') { setSelGozen(p); continue }
+        if (p === '午後有給' || p === '午後選択休') { setSelGogo(p); continue }
         const dk = parseDaikyu(p)
         if (dk) {
           if (dk.type === 'full') { setDaikyuMode('full'); setDaikyuDate(dk.date) }
@@ -315,9 +315,9 @@ export default function PunchTab({ employee }: { employee: any }) {
       setSelKinmu(kinmuBuf)
     } else if (initialChip) {
       // 押されたチップを初期選択
-      const kyukaAll = ['有給（全日）', '希望休（全日）']
-      const gozenList = ['午前有給', '午前希望休']
-      const gogoList = ['午後有給', '午後希望休']
+      const kyukaAll = ['有給（全日）', '選択休（全日）']
+      const gozenList = ['午前有給', '午前選択休']
+      const gogoList = ['午後有給', '午後選択休']
       if (kyukaAll.includes(initialChip)) setSelZenjitsu(initialChip)
       else if (gozenList.includes(initialChip)) setSelGozen(initialChip)
       else if (gogoList.includes(initialChip)) setSelGogo(initialChip)
@@ -533,7 +533,7 @@ export default function PunchTab({ employee }: { employee: any }) {
       <div style={{ maxWidth: 440, margin: '0 auto', textAlign: 'left' }}>
         <Dot color="#EF4444" label="休暇申請" />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 24 }}>
-          {['有給（全日）', '午前有給', '午後有給', '希望休（全日）', '午前希望休', '午後希望休'].map(l => (
+          {['有給（全日）', '午前有給', '午後有給', '選択休（全日）', '午前選択休', '午後選択休'].map(l => (
             <button key={l} onClick={() => openModal(l)} style={{
               padding: '13px 6px', borderRadius: '6px',
               border: `1px solid ${T.border}`, backgroundColor: '#fff',
@@ -577,15 +577,15 @@ export default function PunchTab({ employee }: { employee: any }) {
             <Dot color={T.holidayRed} label="休暇申請" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
               <Chip label="有給（全日）" selected={selZenjitsu === '有給（全日）'} color={T.yukyuBlue} onClick={() => toggleZenjitsu('有給（全日）')} />
-              <Chip label="希望休（全日）" selected={selZenjitsu === '希望休（全日）'} color={T.kibouYellow} onClick={() => toggleZenjitsu('希望休（全日）')} />
+              <Chip label="選択休（全日）" selected={selZenjitsu === '選択休（全日）'} color={T.kibouYellow} onClick={() => toggleZenjitsu('選択休（全日）')} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
               <Chip label="午前有給" selected={selGozen === '午前有給'} color={T.yukyuBlue} onClick={() => toggleGozen('午前有給')} />
-              <Chip label="午前希望休" selected={selGozen === '午前希望休'} color={T.kibouYellow} onClick={() => toggleGozen('午前希望休')} />
+              <Chip label="午前選択休" selected={selGozen === '午前選択休'} color={T.kibouYellow} onClick={() => toggleGozen('午前選択休')} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 20 }}>
               <Chip label="午後有給" selected={selGogo === '午後有給'} color={T.yukyuBlue} onClick={() => toggleGogo('午後有給')} />
-              <Chip label="午後希望休" selected={selGogo === '午後希望休'} color={T.kibouYellow} onClick={() => toggleGogo('午後希望休')} />
+              <Chip label="午後選択休" selected={selGogo === '午後選択休'} color={T.kibouYellow} onClick={() => toggleGogo('午後選択休')} />
             </div>
 
             <Dot color={T.kinmuGreen} label="勤務申請" />
@@ -659,3 +659,4 @@ export default function PunchTab({ employee }: { employee: any }) {
     </div>
   )
 }
+
