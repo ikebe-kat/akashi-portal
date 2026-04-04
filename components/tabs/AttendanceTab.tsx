@@ -505,6 +505,30 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             <div style={{ fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 4 }}>休暇・勤務申請</div>
             <div style={{ fontSize: 13, color: T.textSec, marginBottom: 16 }}>{yr}年{mo}月{modalDay.day}日（{DOW[modalDay.dow]}）</div>
 
+
+            {/* 申請中の場合 */}
+            {modalDay.pending && !modalDay.reason ? (() => {
+              const lr = leaveRequests.find((r: any) => r.attendance_date === modalDay.dateStr);
+              return lr ? (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ padding: "14px", borderRadius: "6px", backgroundColor: "#EFF6FF", border: "1px solid #3B82F6" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1D4ED8", marginBottom: 8 }}>有給申請中</div>
+                    <div style={{ marginBottom: 4 }}><ReasonBadges reason={lr.reason} /></div>
+                    <div style={{ fontSize: 12, color: T.textSec }}>承認待ちです</div>
+                  </div>
+                  <button onClick={() => {
+                    showConfirm("この有給申請を取り下げますか？", async () => {
+                      setSaving(true);
+                      const { error } = await supabase.from("leave_requests").delete().eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr).eq("status", "申請中");
+                      setSaving(false);
+                      if (!error) { setModalDay(null); loadData(); }
+                      else { showAlert("取り下げに失敗しました: " + error.message); }
+                    }, "取り下げ", "#DC2626");
+                  }} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: "6px", border: "1px solid #DC2626", backgroundColor: "#fff", color: "#DC2626", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{saving ? "処理中..." : "申請を取り下げる"}</button>
+                  <button onClick={() => setModalDay(null)} style={{ marginTop: 8, width: "100%", padding: "12px", borderRadius: "6px", border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 14, cursor: "pointer" }}>閉じる</button>
+                </div>
+              ) : null;
+            })() : <>
             {/* プレビュー */}
             <div style={{ padding: "10px 14px", borderRadius: "6px", backgroundColor: previewReason ? "#ECFDF5" : T.bg, marginBottom: 20, minHeight: 40, display: "flex", alignItems: "center" }}>
               {previewReason ? <ReasonBadges reason={previewReason} /> : <span style={{ fontSize: 13, color: T.textMuted }}>事由を選択してください</span>}
@@ -582,6 +606,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
               )}
               <button onClick={submitReason} disabled={saving || !previewReason} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: "none", backgroundColor: previewReason ? (selZenjitsu === "有給（全日）" || selGozen === "午前有給" || selGogo === "午後有給" ? "#1D4ED8" : T.primary) : T.border, color: previewReason ? "#fff" : T.textMuted, fontSize: 14, fontWeight: 600, cursor: previewReason ? "pointer" : "default" }}>{saving ? "処理中..." : (selZenjitsu === "有給（全日）" || selGozen === "午前有給" || selGogo === "午後有給" ? "申請" : "登録")}</button>
             </div>
+            </>}
           </div>
         </div>
       )}
