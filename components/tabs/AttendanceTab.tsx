@@ -325,6 +325,45 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       }
     }
 
+
+    /* 有給が含まれる場合 → leave_requestsにINSERT（attendance_dailyには登録しない） */
+    if (yukyuDays > 0) {
+      if (!requestComment.trim()) { showAlert("有給申請には理由の入力が必須です"); return; }
+      const storeName = employee.store_name || "";
+      let approverId: string | null = null;
+      const myCode = employee.employee_code || "";
+      if (myCode === "DA01" || myCode === "DA02") {
+        const { data: d18 } = await supabase.from("employees").select("id").eq("employee_code", "D18").eq("company_id", employee.company_id).maybeSingle();
+        approverId = d18?.id || null;
+      } else if (storeName.includes("大久保")) {
+        const { data: da02 } = await supabase.from("employees").select("id").eq("employee_code", "DA02").eq("company_id", employee.company_id).maybeSingle();
+        approverId = da02?.id || null;
+      } else if (storeName.includes("魚住")) {
+        const { data: da01 } = await supabase.from("employees").select("id").eq("employee_code", "DA01").eq("company_id", employee.company_id).maybeSingle();
+        approverId = da01?.id || null;
+      }
+      setSaving(true);
+      const { error } = await supabase.from("leave_requests").insert({
+        company_id: employee.company_id,
+        employee_id: employee.id,
+        attendance_date: modalDay.dateStr,
+        reason: previewReason,
+        request_comment: requestComment.trim(),
+        approver_id: approverId,
+        status: "申請中",
+      });
+      setSaving(false);
+      if (!error) {
+        setModalDay(null); loadData();
+        const notifyCodes = myCode === "DA01" || myCode === "DA02" ? ["D18", "D67"] : [storeName.includes("大久保") ? "DA02" : "DA01", "D18", "D67"];
+        const uniqueCodes = [...new Set(notifyCodes)];
+        fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "leave_request_new", payload: { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName, notify_codes: uniqueCodes } }),
+        }).catch(() => {});
+      } else { showAlert("申請に失敗しました: " + error.message); }
+      return;
+    }
     setSaving(true);
     const { error } = await supabase.from("attendance_daily").upsert({
       employee_id: employee.id, company_id: employee.company_id,
@@ -334,7 +373,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     setSaving(false);
     if (!error) {
       setModalDay(null); loadData();
-      if (previewReason && (previewReason.includes("有給") || previewReason.includes("選択休") || previewReason.includes("代休") || previewReason.includes("出張"))) {
+      if (previewReason && (previewReason.includes("選択休") || previewReason.includes("代休") || previewReason.includes("出張"))) {
         const storeName = employee.store_name || "";
         fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -552,6 +591,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     </div>
   );
 }
+
 
 
 
