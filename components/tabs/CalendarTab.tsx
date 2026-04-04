@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // ═══════════════════════════════════════════
 // components/tabs/CalendarTab.tsx — カレンダータブ（Supabase接続済み）
 // レスポンシブ対応版: PC=セル110px+右パネル320px / スマホ=右スライドインパネル65%幅
@@ -376,7 +376,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
       .neq("reason", "");
 
     const mapped: AttendanceEvent[] = (attData || [])
-      .filter((row: any) => row.reason && row.reason !== "公休" && row.reason !== "休職" && (row.employees as any)?.employee_code !== "002")
+      .filter((row: any) => row.reason && row.reason !== "公休" && row.reason !== "休職" && (row.employees as any)?.employee_code !== "D02")
       .map((row: any) => ({
         employee_id: row.employee_id,
         full_name: (row.employees as any)?.full_name || "不明",
