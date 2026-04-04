@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 // ═══════════════════════════════════════════
 // components/tabs/RosterTab.tsx — 名簿タブ（マイページ機能実装済み）
 // ═══════════════════════════════════════════
@@ -317,7 +317,7 @@ const ProfileModal = ({ emp, viewerPerm, viewerCode, isSelf, companyId, onClose,
         >
           {/* ヘッダー */}
           <div style={{
-            background: `linear-gradient(135deg, ${T.primary}, #00D4E8)`,
+            background: `linear-gradient(135deg, ${T.primary}, #F4A261)`,
             padding: "24px 20px 18px", color: "#fff",
             borderRadius: "12px 12px 0 0", position: "relative",
           }}>
@@ -599,3 +599,4 @@ export default function RosterTab({ employee }: { employee: any }) {
     </div>
   );
 }
+
