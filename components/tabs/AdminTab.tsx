@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, displayReason, displayChipLabel, isKoukyuPart } from "@/lib/constants";
 import { Badge, ReasonBadges } from "@/components/ui";
@@ -299,14 +299,14 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
           <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
           <Chip label={displayChipLabel("選択休（全日）", empCode)} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-          <Chip label="午前有給" selected={selGozen === "午前有給"} color={T.yukyuBlue} onClick={() => toggleGozen("午前有給")} />
-          <Chip label={displayChipLabel("午前選択休", empCode)} selected={selGozen === "午前選択休"} color={T.kibouYellow} onClick={() => toggleGozen("午前選択休")} />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-          <Chip label="午後有給" selected={selGogo === "午後有給"} color={T.yukyuBlue} onClick={() => toggleGogo("午後有給")} />
-          <Chip label={displayChipLabel("午後選択休", empCode)} selected={selGogo === "午後選択休"} color={T.kibouYellow} onClick={() => toggleGogo("午後選択休")} />
-        </div>
+
+
+
+
+
+
+
+
 
         <Dot color={T.kinmuGreen} label="勤務申請" />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
@@ -632,14 +632,14 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
           <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
           <Chip label="選択休（全日）" selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-          <Chip label="午前有給" selected={selGozen === "午前有給"} color={T.yukyuBlue} onClick={() => toggleGozen("午前有給")} />
-          <Chip label="午前選択休" selected={selGozen === "午前選択休"} color={T.kibouYellow} onClick={() => toggleGozen("午前選択休")} />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-          <Chip label="午後有給" selected={selGogo === "午後有給"} color={T.yukyuBlue} onClick={() => toggleGogo("午後有給")} />
-          <Chip label="午後選択休" selected={selGogo === "午後選択休"} color={T.kibouYellow} onClick={() => toggleGogo("午後選択休")} />
-        </div>
+
+
+
+
+
+
+
+
 
         <Dot color={T.kinmuGreen} label="勤務申請" />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
