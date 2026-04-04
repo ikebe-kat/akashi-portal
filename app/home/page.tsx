@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { T } from "@/lib/constants";
@@ -23,9 +23,7 @@ const BASE_TABS: { id: TabId; label: string }[] = [
   { id: "documents",  label: "書類" },
 ];
 
-const KatLogo = () => (
-  <img src="/KAT_logo_-05.png" alt="KAT WORLD" style={{ height: 32 }} />
-);
+const KatLogo = () => (`n  <img src="/daihatsu_logo.png" alt="ダイハツ明石西" style={{ height: 32 }} />`n);
 
 /* ── 赤バッジ ── */
 const TabBadge = ({ count }: { count: number }) => {
@@ -191,8 +189,8 @@ export default function HomePage() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <KatLogo />
-          <span style={{ fontSize: 14, fontWeight: 900, color: T.text, letterSpacing: "1.5px" }}>KAT</span>
-          <span style={{ fontSize: 11, fontWeight: 400, color: T.textSec, letterSpacing: "1px" }}>WORLD</span>
+          <span style={{ fontSize: 14, fontWeight: 900, color: T.text, letterSpacing: "1.5px" }}>ダイハツ明石西</span>
+          
           <span style={{ fontSize: 12, color: T.textMuted, marginLeft: 2 }}>社内ポータル</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -247,3 +245,6 @@ export default function HomePage() {
     </div>
   );
 }
+
+
+
