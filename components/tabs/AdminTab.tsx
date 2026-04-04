@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, displayReason, displayChipLabel, isKoukyuPart } from "@/lib/constants";
 import { Badge, ReasonBadges } from "@/components/ui";
@@ -10,14 +10,16 @@ import PaidLeaveSub from "@/components/tabs/PaidLeaveSub";
 import SharoushiSub from "@/components/tabs/SharoushiSub";
 import EmployeeManageSub from "@/components/tabs/EmployeeManageSub";
 import SettingsSub from "@/components/tabs/SettingsSub";
+import LeaveApprovalSub from "@/components/tabs/LeaveApprovalSub";
 
 interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
 
-type SubTab = "notifications" | "paidleave" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "settings";
+type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "settings";
 const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "super_only" | "all" }[] = [
   { id: "notifications", label: "お知らせ", visibleTo: "owner_or_kondo" },
   { id: "paidleave", label: "有給管理", visibleTo: "owner_or_kondo" },
+  { id: "leave_approval", label: "有給承認", visibleTo: "all" },
   { id: "sharoushi", label: "社労士出力", visibleTo: "owner_only" },
   { id: "individual", label: "個人出勤簿", visibleTo: "all" },
   { id: "daily", label: "日次一覧", visibleTo: "all" },
@@ -1299,6 +1301,7 @@ export default function AdminTab({ employee }: { employee: any }) {
       </div>
       {sub === "notifications" && <NotificationsSub employee={employee} />}
       {sub === "paidleave" && <PaidLeaveSub employee={employee} />}
+      {sub === "leave_approval" && <LeaveApprovalSub employee={employee} />}
       {sub === "sharoushi" && <SharoushiSub employee={employee} />}
       {sub === "individual" && <IndividualSub employee={employee} />}
       {sub === "daily" && <DailySub employee={employee} />}
@@ -1310,4 +1313,9 @@ export default function AdminTab({ employee }: { employee: any }) {
     </div>
   );
 }
+
+
+
+
+
 

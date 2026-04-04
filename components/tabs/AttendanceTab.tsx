@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuPart } from "@/lib/constants";
@@ -106,6 +106,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   const [daikyuHalf, setDaikyuHalf] = useState<"am" | "pm" | null>(null);
   const [daikyuDate, setDaikyuDate] = useState("");
   const [requestComment, setRequestComment] = useState("");
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
 
   /* カスタムダイアログ */
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -179,7 +180,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       });
     }
     return days;
-  }, [yr, mo, rows, holidays]);
+  }, [yr, mo, rows, holidays, leaveRequests]);
 
   /* ── サマリー ── */
   const sum = useMemo((): MonthlySummary => {
@@ -419,7 +420,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                     <td style={{ padding: "7px 4px", textAlign: "center", color: dc, width: 20 }}>{DOW[row.dow]}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.pi ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.po ?? <span style={{ color: T.textPH }}>—</span>}</td>
-                    <td style={{ padding: "7px 4px" }}><ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "休日" : null)} /></td>
+                    <td style={{ padding: "7px 4px" }}>{row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEF3C7", color: "#92400E" }}>申請中</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "休日" : null)} />}</td>
                     {!isMobile && (
                       <td style={{ padding: "7px 4px", color: T.text, width: 56, whiteSpace: "nowrap" }}>{row.wm > 0 ? fmtMin(row.wm) : <span style={{ color: T.textPH }}>—</span>}</td>
                     )}
@@ -522,7 +523,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
               {modalDay.reason && (
                 <button onClick={cancelReason} disabled={saving} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: `1px solid ${T.danger}`, backgroundColor: "#fff", color: T.danger, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{saving ? "..." : "取消"}</button>
               )}
-              <button onClick={submitReason} disabled={saving || !previewReason} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: "none", backgroundColor: previewReason ? T.primary : T.border, color: previewReason ? "#fff" : T.textMuted, fontSize: 14, fontWeight: 600, cursor: previewReason ? "pointer" : "default" }}>{saving ? "登録中..." : "登録"}</button>
+              <button onClick={submitReason} disabled={saving || !previewReason} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: "none", backgroundColor: previewReason ? (selZenjitsu === "有給（全日）" || selGozen === "午前有給" || selGogo === "午後有給" ? "#1D4ED8" : T.primary) : T.border, color: previewReason ? "#fff" : T.textMuted, fontSize: 14, fontWeight: 600, cursor: previewReason ? "pointer" : "default" }}>{saving ? "処理中..." : (selZenjitsu === "有給（全日）" || selGozen === "午前有給" || selGogo === "午後有給" ? "申請" : "登録")}</button>
             </div>
           </div>
         </div>
@@ -544,4 +545,12 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     </div>
   );
 }
+
+
+
+
+
+
+
+
 
