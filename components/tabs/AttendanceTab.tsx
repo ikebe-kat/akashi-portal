@@ -105,6 +105,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   const [daikyuMode, setDaikyuMode] = useState<"none" | "full" | "half">("none");
   const [daikyuHalf, setDaikyuHalf] = useState<"am" | "pm" | null>(null);
   const [daikyuDate, setDaikyuDate] = useState("");
+  const [requestComment, setRequestComment] = useState("");
 
   /* カスタムダイアログ */
   const [dialog, setDialog] = useState<DialogState | null>(null);
