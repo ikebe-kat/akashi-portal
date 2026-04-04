@@ -148,8 +148,8 @@ export default function HomePage() {
   }, [employee, fetchBadges]);
 
   const handleLogout = () => {
-    localStorage.removeItem("employee");
-    router.push("/");
+    const emp = JSON.parse(localStorage.getItem("employee") || "{}");
+    localStorage.removeItem("employee"); if (emp.portal_group_id) { window.location.href = "https://kat-kintai-app.vercel.app/"; } else { router.push("/"); }
   };
 
   if (!employee) return null;
