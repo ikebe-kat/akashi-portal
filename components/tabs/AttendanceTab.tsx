@@ -513,6 +513,13 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             )}
 
             <div style={{ marginBottom: 20 }}>
+            {(selZenjitsu === "有給（全日）" || selGozen === "午前有給" || selGogo === "午後有給") && (
+              <div style={{ padding: 14, borderRadius: "6px", border: "1px solid #3B82F6", backgroundColor: "#EFF6FF", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1D4ED8", marginBottom: 8 }}>有給申請理由（必須）</div>
+                <textarea value={requestComment} onChange={e => setRequestComment(e.target.value)} placeholder="例：私用のため、通院のため"
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: "1px solid #93C5FD", fontSize: 13, resize: "vertical", minHeight: 50, boxSizing: "border-box" }} />
+              </div>
+            )}
               <label style={{ fontSize: 12, color: T.textSec, display: "block", marginBottom: 4 }}>備考</label>
               <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="例：熱があって遅刻しました"
                 style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: `1px solid ${T.border}`, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
@@ -545,6 +552,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     </div>
   );
 }
+
 
 
 
