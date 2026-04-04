@@ -33,7 +33,7 @@ export default function LoginPage() {
       return
     }
 
-    localStorage.setItem('employee', JSON.stringify(data))
+    const empData = { ...data, store_name: (data as any).stores?.store_name || '' }; delete (empData as any).stores; localStorage.setItem('employee', JSON.stringify(empData))
     router.push('/home')
   }
 
@@ -82,5 +82,6 @@ export default function LoginPage() {
     </div>
   )
 }
+
 
 
