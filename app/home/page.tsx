@@ -123,7 +123,7 @@ export default function HomePage() {
 
         // 池邉（人事）は未処理申請も加算
         if (employee.employee_code === "067") {
-          const { count: pendingReqs } = await supabase.from("change_requests")
+        if (employee.employee_code === "D67") {
             .select("id", { count: "exact", head: true })
             .eq("company_id", employee.company_id).eq("status", "未処理");
           teamIssues += (pendingReqs || 0);
