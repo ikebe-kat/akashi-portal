@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from "next";
+﻿import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,13 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "KAT WORLD 社内ポータル",
-  description: "KAT WORLD 社内ポータルシステム",
+  title: "ダイハツ明石西 社内ポータル",
+  description: "ダイハツ明石西 社内ポータルシステム",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "KAT社内ポータル",
+    title: "ダイハツ明石西",
   },
 };
 
@@ -43,9 +43,10 @@ export default function RootLayout({
     >
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-        <link rel="apple-touch-icon" href="/KAT_logo_-05.png" />
+        <link rel="apple-touch-icon" href="/daihatsu_logo.png" />
       </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }
+
