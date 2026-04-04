@@ -44,7 +44,7 @@ export function storeIdToCalGroup(storeId: string | null, department?: string | 
   if (!storeId) return "all";
   const prefix = storeId.slice(0, 8);
   return STORE_TO_CAL_GROUP[prefix] || "okubo";
-
+}
 
 // ── 特定社員のカレンダー特殊権限 ──
 const SPECIAL_CAL_ACCESS: Record<string, string[]> = {
