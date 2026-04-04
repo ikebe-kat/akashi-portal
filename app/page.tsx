@@ -11,22 +11,16 @@ export default function LoginPage() {
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    // 既にログイン済みならhomeへ
     const stored = localStorage.getItem('employee')
     if (stored) {
       router.push('/home')
       return
     }
-    // KATポータルからの遷移チェック
-    const token = localStorage.getItem('portal_token')
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('portal_token')
     if (token) {
-      try {
-        const t = JSON.parse(token)
-        if (t.from === 'kat-portal' && t.target_company_id === 'e85e40ac-71f7-4918-b2fc-36d877337b74') {
-          autoLogin(t.portal_group_id)
-          return
-        }
-      } catch {}
+      autoLogin(decodeURIComponent(token))
+      return
     }
     setChecking(false)
   }, [])
@@ -40,10 +34,9 @@ export default function LoginPage() {
       .maybeSingle()
     if (data) {
       const empData = { ...data, store_name: (data as any).stores?.store_name || '' }; delete (empData as any).stores; localStorage.setItem('employee', JSON.stringify(empData))
-      localStorage.removeItem('portal_token')
+      window.history.replaceState({}, '', '/');
       router.push('/home')
     } else {
-      localStorage.removeItem('portal_token')
       setChecking(false)
     }
   }
