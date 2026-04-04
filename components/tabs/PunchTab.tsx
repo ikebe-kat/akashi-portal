@@ -578,7 +578,7 @@ export default function PunchTab({ employee }: { employee: any }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
               <Chip label="有給（全日）" selected={selZenjitsu === '有給（全日）'} color={T.yukyuBlue} onClick={() => toggleZenjitsu('有給（全日）')} />
               <Chip label="選択休（全日）" selected={selZenjitsu === '選択休（全日）'} color={T.kibouYellow} onClick={() => toggleZenjitsu('選択休（全日）')} />
-
+            </div>
 
 
 
