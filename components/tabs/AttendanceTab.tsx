@@ -334,7 +334,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       setModalDay(null); loadData();
       if (previewReason && (previewReason.includes("有給") || previewReason.includes("選択休") || previewReason.includes("代休") || previewReason.includes("出張"))) {
         const storeName = employee.store_name || "";
-        fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push", {
+        fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type: "attendance_reason_set", payload: { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName } }),
         }).catch(() => {});
@@ -356,7 +356,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         setModalDay(null); loadData();
         if (modalDay.reason && (modalDay.reason.includes("有給") || modalDay.reason.includes("選択休") || modalDay.reason.includes("代休") || modalDay.reason.includes("出張"))) {
           const storeName = employee.store_name || "";
-          fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push", {
+          fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "attendance_reason_cleared", payload: { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, old_reason: modalDay.reason, attendance_date: modalDay.dateStr, store_name: storeName } }),
           }).catch(() => {});
