@@ -27,30 +27,30 @@ export function getPermLevel(role: string | null): PermLevel {
 // ── store_id(UUID先頭8文字) → カレンダーグループ ──
 const STORE_TO_CAL_GROUP: Record<string, string> = {
   "f933a681": "yatsushiro",
-  "9ed83ee0": "kengun",
-  "19a54657": "ozu",
-  "54b1bebb": "gyomu",
-  "68746fa3": "gyomu",
-  "eedb5c24": "gyomu",
-  "52b33086": "gyomu",
-  "db99ae65": "gyomu",
+  "7336dda2": "okubo",
+  "0141e0fe": "uozumi",
+  "e43bd745": "okubo",
+
+
+
+
 };
 
 // ── 業務部判定（カレンダーグループ） ──
 const GYOMU_DEPTS = ["人事", "経理", "DX", "人事総務", "DX推進"];
 
 export function storeIdToCalGroup(storeId: string | null, department?: string | null): string {
-  if (department && GYOMU_DEPTS.some((d) => department.includes(d))) return "gyomu";
+  if (department && GYOMU_DEPTS.some((d) => department.includes(d))) return "okubo";
   if (!storeId) return "all";
   const prefix = storeId.slice(0, 8);
-  return STORE_TO_CAL_GROUP[prefix] || "gyomu";
-}
+  return STORE_TO_CAL_GROUP[prefix] || "okubo";
+
 
 // ── 特定社員のカレンダー特殊権限 ──
 const SPECIAL_CAL_ACCESS: Record<string, string[]> = {
-  "049": ["all", "kengun", "ozu", "yatsushiro", "gyomu"],  // 岩永 → 全カレンダー
-  "094": ["gyomu", "ozu"],     // 鳥巣 → 業務部+大津
-  "095": ["gyomu", "kengun"],  // 浜村 → 業務部+健軍
+
+
+
 };
 
 export function canShowCalendarGroupSelect(perm: PermLevel, employeeCode?: string): boolean {
@@ -97,10 +97,10 @@ interface RosterScope {
 }
 
 const ROSTER_SCOPES: Record<string, RosterScope> = {
-  "003": { type: "all", noDependents: true },                                // 近藤 → 全店舗detail、扶養書類以外
-  "006": { type: "store_detail", stores: ["9ed83ee0"], noDependents: true },  // 山口 → 健軍のみdetail
-  "009": { type: "store_detail", stores: ["f933a681"], noDependents: true },  // 吉田 → 八代のみdetail
-  "049": { type: "basic_only" },                                               // 岩永 → KATは基本のみ
+  "DA01": { type: "store_detail", stores: ["0141e0fe"], noDependents: true },  // 雨宮 → 魚住店のみdetail
+  "DA02": { type: "store_detail", stores: ["7336dda2"], noDependents: true },  // 押谷 → 大久保店のみdetail
+
+
 };
 
 export function canSeeProfile(
@@ -139,13 +139,13 @@ interface PunchEditScope {
 }
 
 const PUNCH_EDIT_SCOPES: Record<string, PunchEditScope> = {
-  "002": { type: "all" },                                          // 代表
-  "018": { type: "all" },                                          // 専務
-  "067": { type: "all" },                                          // 池邉
-  "003": { type: "all" },                                          // 近藤
-  "006": { type: "stores", stores: ["9ed83ee0"] },                 // 山口 → 健軍
-  "009": { type: "stores", stores: ["f933a681"] },                 // 吉田 → 八代
-  "069": { type: "department", department: "鈑金塗装" },         // 中野 → 鈑金塗装部
+  "D02": { type: "all" },                                          // 代表
+  "D18": { type: "all" },                                          // 専務
+  "D67": { type: "all" },                                          // 池邉
+  "D49": { type: "all" },                                          // 岩永
+  "DA01": { type: "stores", stores: ["0141e0fe"] },                // 雨宮 → 魚住店
+  "DA02": { type: "stores", stores: ["7336dda2"] },                // 押谷 → 大久保店
+
 };
 
 export function canEditPunch(

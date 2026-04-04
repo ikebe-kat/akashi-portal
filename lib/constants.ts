@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════
+﻿// ═══════════════════════════════════════════
 // KAT WORLD 勤怠アプリ — 共通定数・テーマ
 // ═══════════════════════════════════════════
 
@@ -73,7 +73,7 @@ export const stepMonth = (
 // ═══════════════════════════════════════════
 // パート公休 名称変更
 // ═══════════════════════════════════════════
-export const KOUKYU_PART_CODES = ["015", "020", "091"] as const;
+export const KOUKYU_PART_CODES = ["DA023", "DA024", "DA025", "DA026", "DA027", "DA028", "DA029", "DA030", "DA031", "DA032"] as const;
 
 export const isKoukyuPart = (empCode: string): boolean =>
   (KOUKYU_PART_CODES as readonly string[]).includes(empCode);
@@ -107,3 +107,4 @@ export function calendarDisplayName(fullName: string, empCode?: string): string 
   }
   return surname;
 }
+
