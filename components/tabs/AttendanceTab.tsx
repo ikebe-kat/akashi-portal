@@ -522,7 +522,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                       if (!error) { setModalDay(null); loadData(); }
                       else { showAlert("取り下げに失敗しました: " + error.message); }
                     }, "取り下げ", "#DC2626");
-                  }} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: "6px", border: "1px solid #DC2626", backgroundColor: "#fff", color: "#DC2626", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{saving ? "処理中..." : "申請を取り下げる"}</button>}
+                  }} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: "6px", border: "1px solid #DC2626", backgroundColor: "#fff", color: "#DC2626", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{saving ? "処理中..." : "申請を取り下げる"}</button>
+                  }
                   <button onClick={() => setModalDay(null)} style={{ marginTop: 8, width: "100%", padding: "12px", borderRadius: "6px", border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 14, cursor: "pointer" }}>閉じる</button>
                 </div>
               ) : null;
