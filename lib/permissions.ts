@@ -13,6 +13,8 @@ export type PermLevel = "super" | "admin" | "employee";
  */
 export function getPermLevel(role: string | null): PermLevel {
   if (!role) return "employee";
+  if (role === "super") return "super";
+  if (role === "admin") return "admin";
   if (role.startsWith("全店")) return "super";
   if (role.includes("店長") || role.includes("経理") || role.includes("鈑金")) return "admin";
   return "employee";
