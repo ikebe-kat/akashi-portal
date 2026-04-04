@@ -174,12 +174,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       const date = new Date(yr, mo - 1, d);
       const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const rec = rows.find(r => r.attendance_date === dateStr);
-      const isPending = leaveRequests.some(lr => {
-        if (lr.end_date) {
-          return dateStr >= lr.attendance_date && dateStr <= lr.end_date;
-        }
-        return dateStr === lr.attendance_date;
-      });
+      const pendingLr = leaveRequests.find(lr => lr.status === "申請中" && lr.attendance_date === dateStr);
+      const rejectedLr = leaveRequests.find(lr => lr.status === "却下" && lr.attendance_date === dateStr);
       days.push({
         day: d, dow: date.getDay(), dateStr,
         pi: rec?.punch_in?.slice(0, 5) ?? null, po: rec?.punch_out?.slice(0, 5) ?? null,
@@ -187,7 +183,9 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         wm: rec?.actual_hours ? Math.round(Number(rec.actual_hours) * 60) : 0,
         diff: rec?.over_under ? Math.round(Number(rec.over_under) * 60) : 0,
         off: holidays.includes(dateStr),
-        pending: isPending,
+        pending: !!pendingLr,
+        rejected: !!rejectedLr,
+        rejectReason: rejectedLr?.reject_reason || null,
       });
     }
     return days;
@@ -470,7 +468,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                     <td style={{ padding: "7px 4px", textAlign: "center", color: dc, width: 20 }}>{DOW[row.dow]}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.pi ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.po ?? <span style={{ color: T.textPH }}>—</span>}</td>
-                    <td style={{ padding: "7px 4px" }}>{row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "休日" : null)} />}</td>
+                    <td style={{ padding: "7px 4px" }}>{row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "休日" : null)} />}</td>
                     {!isMobile && (
                       <td style={{ padding: "7px 4px", color: T.text, width: 56, whiteSpace: "nowrap" }}>{row.wm > 0 ? fmtMin(row.wm) : <span style={{ color: T.textPH }}>—</span>}</td>
                     )}
@@ -524,7 +522,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                       if (!error) { setModalDay(null); loadData(); }
                       else { showAlert("取り下げに失敗しました: " + error.message); }
                     }, "取り下げ", "#DC2626");
-                  }} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: "6px", border: "1px solid #DC2626", backgroundColor: "#fff", color: "#DC2626", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{saving ? "処理中..." : "申請を取り下げる"}</button>
+                  }} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: "6px", border: "1px solid #DC2626", backgroundColor: "#fff", color: "#DC2626", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{saving ? "処理中..." : "申請を取り下げる"}</button>}
                   <button onClick={() => setModalDay(null)} style={{ marginTop: 8, width: "100%", padding: "12px", borderRadius: "6px", border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 14, cursor: "pointer" }}>閉じる</button>
                 </div>
               ) : null;
@@ -627,6 +625,10 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     </div>
   );
 }
+
+
+
+
 
 
 
