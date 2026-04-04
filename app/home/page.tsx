@@ -57,9 +57,9 @@ export default function HomePage() {
       router.push("/");
       return;
     }
-    const emp = JSON.parse(stored);
+    if (emp.role === "super") setTab("calendar");
     setEmployee(emp);
-    if (emp.employee_code === "002") setTab("calendar");
+
   }, []);
 
   /* ── バッジ件数取得 ── */
@@ -154,10 +154,10 @@ export default function HomePage() {
   if (!employee) return null;
 
   const perm = getPermLevel(employee.role || null);
-  const isRepresentative = employee.employee_code === "002";
+
 
   let TABS: { id: TabId; label: string }[];
-  if (isRepresentative) {
+  if (perm === "super") {
     TABS = [
       { id: "calendar", label: "カレンダー" },
       { id: "roster",   label: "名簿" },
