@@ -505,14 +505,14 @@ export default function AttendanceTab({ employee }: { employee: any }) {
 
 
             {/* 申請中の場合 */}
-            {modalDay.pending && !modalDay.reason ? (() => {
+            {(modalDay.pending || modalDay.rejected) && !modalDay.reason ? (() => {
               const lr = leaveRequests.find((r: any) => r.attendance_date === modalDay.dateStr);
               return lr ? (
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ padding: "14px", borderRadius: "6px", backgroundColor: "#EFF6FF", border: "1px solid #3B82F6" }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1D4ED8", marginBottom: 8 }}>有給申請中</div>
+                  <div style={{ padding: "14px", borderRadius: "6px", backgroundColor: lr.status === "却下" ? "#FEF2F2" : "#EFF6FF", border: lr.status === "却下" ? "1px solid #EF4444" : "1px solid #3B82F6" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: lr.status === "却下" ? "#991B1B" : "#1D4ED8", marginBottom: 8 }}>{lr.status === "却下" ? "有給却下" : "有給申請中"}</div>
                     <div style={{ marginBottom: 4 }}><ReasonBadges reason={lr.reason} /></div>
-                    <div style={{ fontSize: 12, color: T.textSec }}>承認待ちです</div>
+                    {lr.status === "却下" && lr.reject_reason && <div style={{ fontSize: 13, color: "#991B1B", marginTop: 6 }}>却下理由: {lr.reject_reason}</div>}
                   </div>
                   {lr.status === "申請中" && (
                   <button onClick={() => {
