@@ -1,4 +1,4 @@
-﻿// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════
 // KAT WORLD 勤怠アプリ — 共通定数・テーマ
 // ═══════════════════════════════════════════
 
@@ -95,16 +95,17 @@ export const displayChipLabel = (label: string, empCode: string): string => {
 };
 /** カレンダー用の短縮表示名（同姓対策） */
 const CAL_DISPLAY_OVERRIDES: Record<string, string> = {
-  "018": "啓彰",
+  "D02": "社長", "D18": "専務",
 };
 export function calendarDisplayName(fullName: string, empCode?: string): string {
   if (empCode && CAL_DISPLAY_OVERRIDES[empCode]) return CAL_DISPLAY_OVERRIDES[empCode];
   const parts = fullName.split(" ");
   const surname = parts[0] || fullName;
   const given = parts[1] || "";
-  if (surname === "辻" || surname === "山本" || surname === "山下") {
+  if (surname === "黒田") {
     return surname + given.charAt(0);
   }
   return surname;
 }
+
 
