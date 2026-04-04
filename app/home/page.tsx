@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { T } from "@/lib/constants";
@@ -23,7 +23,9 @@ const BASE_TABS: { id: TabId; label: string }[] = [
   { id: "documents",  label: "書類" },
 ];
 
-const KatLogo = () => (`n  <img src="/daihatsu_logo.png" alt="ダイハツ明石西" style={{ height: 32 }} />`n);
+const KatLogo = () => (
+  <img src="/daihatsu_logo.png" alt="ダイハツ明石西" style={{ height: 32 }} />
+);
 
 /* ── 赤バッジ ── */
 const TabBadge = ({ count }: { count: number }) => {
