@@ -1,14 +1,52 @@
 ﻿'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-
 export default function LoginPage() {
   const router = useRouter()
   const [employeeCode, setEmployeeCode] = useState('')
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    // 既にログイン済みならhomeへ
+    const stored = localStorage.getItem('employee')
+    if (stored) {
+      router.push('/home')
+      return
+    }
+    // KATポータルからの遷移チェック
+    const token = localStorage.getItem('portal_token')
+    if (token) {
+      try {
+        const t = JSON.parse(token)
+        if (t.from === 'kat-portal' && t.target_company_id === 'e85e40ac-71f7-4918-b2fc-36d877337b74') {
+          autoLogin(t.portal_group_id)
+          return
+        }
+      } catch {}
+    }
+    setChecking(false)
+  }, [])
+
+  const autoLogin = async (pgId: string) => {
+    const { data } = await supabase
+      .from('employees')
+      .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, pin, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, portal_group_id, stores(store_name)')
+      .eq('portal_group_id', pgId)
+      .eq('company_id', 'e85e40ac-71f7-4918-b2fc-36d877337b74')
+      .maybeSingle()
+    if (data) {
+      const empData = { ...data, store_name: (data as any).stores?.store_name || '' }; delete (empData as any).stores; localStorage.setItem('employee', JSON.stringify(empData))
+      localStorage.removeItem('portal_token')
+      router.push('/home')
+    } else {
+      localStorage.removeItem('portal_token')
+      setChecking(false)
+    }
+  }
 
   const handleLogin = async () => {
     setError('')
@@ -20,21 +58,25 @@ export default function LoginPage() {
       .eq('employee_code', code)
       .eq('company_id', 'e85e40ac-71f7-4918-b2fc-36d877337b74')
       .maybeSingle()
-
     setLoading(false)
-
     if (dbError || !data) {
       setError('社員CDが見つかりません')
       return
     }
-
     if (data.pin !== pin) {
       setError('PINが正しくありません')
       return
     }
-
     const empData = { ...data, store_name: (data as any).stores?.store_name || '' }; delete (empData as any).stores; localStorage.setItem('employee', JSON.stringify(empData))
     router.push('/home')
+  }
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-400 text-sm">読み込み中...</p>
+      </div>
+    )
   }
 
   return (
@@ -82,6 +124,3 @@ export default function LoginPage() {
     </div>
   )
 }
-
-
-
