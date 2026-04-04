@@ -1,7 +1,7 @@
 ﻿{
-  "name": "KAT WORLD 社内ポータル",
-  "short_name": "KAT社内ポータル",
-  "description": "KAT WORLD 社内ポータル",
+  "name": "ダイハツ明石西 社内ポータル",
+  "short_name": "ダイハツ明石西",
+  "description": "ダイハツ明石西 社内ポータル",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -16,4 +16,5 @@
     }
   ]
 }
+
 
