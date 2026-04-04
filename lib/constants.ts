@@ -1,4 +1,4 @@
-﻿// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════
 // KAT WORLD 勤怠アプリ — 共通定数・テーマ
 // ═══════════════════════════════════════════
 
@@ -43,11 +43,9 @@ export const DOW = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
 /** カレンダーグループ（通知送り分け単位） */
 export const CAL_GROUPS = [
-  { id: "all",        label: "全店舗" },
-  { id: "kengun",     label: "健軍" },
-  { id: "ozu",        label: "大津" },
-  { id: "yatsushiro", label: "八代" },
-  { id: "gyomu",      label: "業務部" },
+  { id: "all",    label: "全店舗" },
+  { id: "okubo",  label: "大久保店" },
+  { id: "uozumi", label: "魚住店" },
 ] as const;
 
 export type CalGroupId = (typeof CAL_GROUPS)[number]["id"];

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // ═══════════════════════════════════════════
 // components/tabs/RosterTab.tsx — 名簿タブ（マイページ機能実装済み）
 // ═══════════════════════════════════════════
@@ -35,17 +35,12 @@ interface EmpRecord {
 
 // ── store_nameから短縮名とグループIDを判定 ──
 function resolveStore(storeName: string | null): { short: string; groupId: string } {
-  if (!storeName) return { short: "—", groupId: "gyomu" };
+  if (!storeName) return { short: "—", groupId: "all" };
   const n = storeName.toLowerCase();
-  if (n.includes("八代")) return { short: "八代", groupId: "yatsushiro" };
-  if (n.includes("健軍")) return { short: "健軍", groupId: "kengun" };
-  if (n.includes("大津") || n.includes("菊陽")) return { short: "大津", groupId: "ozu" };
-  if (n.includes("本社")) return { short: "本社", groupId: "gyomu" };
-  if (n.includes("経理")) return { short: "業務部", groupId: "gyomu" };
-  if (n.includes("人事")) return { short: "業務部", groupId: "gyomu" };
-  if (n.includes("dx")) return { short: "業務部", groupId: "gyomu" };
-  if (n.includes("御領")) return { short: "御領", groupId: "gyomu" };
-  return { short: storeName, groupId: "gyomu" };
+  if (n.includes("大久保")) return { short: "大久保店", groupId: "okubo" };
+  if (n.includes("魚住")) return { short: "魚住店", groupId: "uozumi" };
+  if (n.includes("本部")) return { short: "本部", groupId: "all" };
+  return { short: storeName, groupId: "all" };
 }
 
 // ── 情報行 ──────────────────────────────
