@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -532,8 +532,8 @@ export default function PunchTab({ employee }: { employee: any }) {
       {/* 休暇申請 */}
       <div style={{ maxWidth: 440, margin: '0 auto', textAlign: 'left' }}>
         <Dot color="#EF4444" label="休暇申請" />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 24 }}>
-          {['有給（全日）', '午前有給', '午後有給', '選択休（全日）', '午前選択休', '午後選択休'].map(l => (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
+          {['有給（全日）', '選択休（全日）'].map(l => (
             <button key={l} onClick={() => openModal(l)} style={{
               padding: '13px 6px', borderRadius: '6px',
               border: `1px solid ${T.border}`, backgroundColor: '#fff',
@@ -578,15 +578,15 @@ export default function PunchTab({ employee }: { employee: any }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
               <Chip label="有給（全日）" selected={selZenjitsu === '有給（全日）'} color={T.yukyuBlue} onClick={() => toggleZenjitsu('有給（全日）')} />
               <Chip label="選択休（全日）" selected={selZenjitsu === '選択休（全日）'} color={T.kibouYellow} onClick={() => toggleZenjitsu('選択休（全日）')} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-              <Chip label="午前有給" selected={selGozen === '午前有給'} color={T.yukyuBlue} onClick={() => toggleGozen('午前有給')} />
-              <Chip label="午前選択休" selected={selGozen === '午前選択休'} color={T.kibouYellow} onClick={() => toggleGozen('午前選択休')} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 20 }}>
-              <Chip label="午後有給" selected={selGogo === '午後有給'} color={T.yukyuBlue} onClick={() => toggleGogo('午後有給')} />
-              <Chip label="午後選択休" selected={selGogo === '午後選択休'} color={T.kibouYellow} onClick={() => toggleGogo('午後選択休')} />
-            </div>
+
+
+
+
+
+
+
+
+
 
             <Dot color={T.kinmuGreen} label="勤務申請" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
