@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════
+﻿// ═══════════════════════════════════════════
 // lib/permissions.ts — 全タブ共通の権限判定
 // ═══════════════════════════════════════════
 
@@ -97,8 +97,8 @@ interface RosterScope {
 }
 
 const ROSTER_SCOPES: Record<string, RosterScope> = {
-  "DA01": { type: "store_detail", stores: ["0141e0fe"], noDependents: true },  // 雨宮 → 魚住店のみdetail
-  "DA02": { type: "store_detail", stores: ["7336dda2"], noDependents: true },  // 押谷 → 大久保店のみdetail
+  "DA001": { type: "store_detail", stores: ["0141e0fe"], noDependents: true },  // 雨宮 → 魚住店のみdetail
+  "DA002": { type: "store_detail", stores: ["7336dda2"], noDependents: true },  // 押谷 → 大久保店のみdetail
 
 
 };
@@ -143,8 +143,8 @@ const PUNCH_EDIT_SCOPES: Record<string, PunchEditScope> = {
   "D18": { type: "all" },                                          // 専務
   "D67": { type: "all" },                                          // 池邉
   "D49": { type: "all" },                                          // 岩永
-  "DA01": { type: "stores", stores: ["0141e0fe"] },                // 雨宮 → 魚住店
-  "DA02": { type: "stores", stores: ["7336dda2"] },                // 押谷 → 大久保店
+  "DA001": { type: "stores", stores: ["0141e0fe"] },                // 雨宮 → 魚住店
+  "DA002": { type: "stores", stores: ["7336dda2"] },                // 押谷 → 大久保店
 
 };
 
@@ -165,3 +165,4 @@ export function canEditPunch(
   }
   return false;
 }
+
