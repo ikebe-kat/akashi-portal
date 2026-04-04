@@ -1,11 +1,11 @@
-{
+﻿{
   "name": "KAT WORLD 社内ポータル",
   "short_name": "KAT社内ポータル",
   "description": "KAT WORLD 社内ポータル",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#00AFCC",
+  "theme_color": "#e96d96",
   "orientation": "portrait",
   "icons": [
     {
@@ -16,3 +16,4 @@
     }
   ]
 }
+
