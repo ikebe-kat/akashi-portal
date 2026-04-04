@@ -174,6 +174,12 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       const date = new Date(yr, mo - 1, d);
       const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const rec = rows.find(r => r.attendance_date === dateStr);
+      const isPending = leaveRequests.some(lr => {
+        if (lr.end_date) {
+          return dateStr >= lr.attendance_date && dateStr <= lr.end_date;
+        }
+        return dateStr === lr.attendance_date;
+      });
       days.push({
         day: d, dow: date.getDay(), dateStr,
         pi: rec?.punch_in?.slice(0, 5) ?? null, po: rec?.punch_out?.slice(0, 5) ?? null,
@@ -181,6 +187,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         wm: rec?.actual_hours ? Math.round(Number(rec.actual_hours) * 60) : 0,
         diff: rec?.over_under ? Math.round(Number(rec.over_under) * 60) : 0,
         off: holidays.includes(dateStr),
+        pending: isPending,
       });
     }
     return days;
