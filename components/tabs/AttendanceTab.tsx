@@ -341,14 +341,14 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       const storeName = employee.store_name || "";
       let approverId: string | null = null;
       const myCode = employee.employee_code || "";
-      if (myCode === "DA01" || myCode === "DA02") {
+      if (myCode === "DA001" || myCode === "DA002") {
         const { data: d18 } = await supabase.from("employees").select("id").eq("employee_code", "D18").eq("company_id", employee.company_id).maybeSingle();
         approverId = d18?.id || null;
       } else if (storeName.includes("大久保")) {
-        const { data: da02 } = await supabase.from("employees").select("id").eq("employee_code", "DA02").eq("company_id", employee.company_id).maybeSingle();
+        const { data: da02 } = await supabase.from("employees").select("id").eq("employee_code", "DA002").eq("company_id", employee.company_id).maybeSingle();
         approverId = da02?.id || null;
       } else if (storeName.includes("魚住")) {
-        const { data: da01 } = await supabase.from("employees").select("id").eq("employee_code", "DA01").eq("company_id", employee.company_id).maybeSingle();
+        const { data: da01 } = await supabase.from("employees").select("id").eq("employee_code", "DA001").eq("company_id", employee.company_id).maybeSingle();
         approverId = da01?.id || null;
       }
       setSaving(true);
@@ -364,7 +364,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       setSaving(false);
       if (!error) {
         setModalDay(null); loadData();
-        const notifyCodes = myCode === "DA01" || myCode === "DA02" ? ["D18", "D67"] : [storeName.includes("大久保") ? "DA02" : "DA01", "D18", "D67"];
+        const notifyCodes = myCode === "DA001" || myCode === "DA002" ? ["D18", "D67"] : [storeName.includes("大久保") ? "DA002" : "DA001", "D18", "D67"];
         const uniqueCodes = [...new Set(notifyCodes)];
         fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -636,6 +636,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     </div>
   );
 }
+
 
 
 
