@@ -57,7 +57,8 @@ export default function HomePage() {
       router.push("/");
       return;
     }
-    if (emp.role === "super") setTab("calendar");
+    const emp = JSON.parse(stored);
+    if (emp.role === "super" && emp.employee_code !== "D67") setTab("calendar");
     setEmployee(emp);
 
   }, []);
