@@ -1281,46 +1281,79 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
   );
 };
 
-/* ── グループ化サブメニュー定義（HONBU用） ── */
-const GROUPED_MENU: { group: string | null; tabs: SubTab[] }[] = [
-  { group: "有給管理", tabs: ["notifications", "paidleave", "leave_approval"] },
-  { group: null, tabs: ["individual", "daily", "monthly", "settings"] },
-  { group: "給与処理", tabs: ["sharoushi", "payroll"] },
-  { group: "情報管理", tabs: ["requests", "documents", "employee_manage"] },
+/* ── 2段メニュー定義（HONBU用） ── */
+type MainMenuItem = { id: string; label: string; subTabs?: SubTab[]; directTab?: SubTab };
+const MAIN_MENU: MainMenuItem[] = [
+  { id: "g_yukyu", label: "有給管理", subTabs: ["notifications", "paidleave", "leave_approval"] },
+  { id: "individual", label: "個人出勤簿", directTab: "individual" },
+  { id: "daily", label: "日次一覧", directTab: "daily" },
+  { id: "monthly", label: "月次サマリ", directTab: "monthly" },
+  { id: "settings", label: "設定", directTab: "settings" },
+  { id: "g_payroll", label: "給与処理", subTabs: ["sharoushi", "payroll"] },
+  { id: "g_info", label: "情報管理", subTabs: ["requests", "documents", "employee_manage"] },
 ];
 
-const GroupedSubMenu = ({ visibleTabs, sub, setSub, onPayroll }: { visibleTabs: { id: SubTab; label: string }[]; sub: SubTab; setSub: (s: SubTab) => void; onPayroll: () => void }) => {
+const TwoRowMenu = ({ visibleTabs, sub, setSub, onPayroll }: { visibleTabs: { id: SubTab; label: string }[]; sub: SubTab; setSub: (s: SubTab) => void; onPayroll: () => void }) => {
   const visibleIds = new Set(visibleTabs.map(t => t.id));
   const labelMap = Object.fromEntries(visibleTabs.map(t => [t.id, t.label]));
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
+
+  // どのメインメニュー項目がアクティブか判定
+  const findActiveMain = (): string => {
+    for (const m of MAIN_MENU) {
+      if (m.directTab && m.directTab === sub) return m.id;
+      if (m.subTabs && m.subTabs.includes(sub)) return m.id;
+    }
+    return MAIN_MENU[0].id;
+  };
+  const [activeMain, setActiveMain] = useState(findActiveMain);
+
+  const currentMenu = MAIN_MENU.find(m => m.id === activeMain);
+  const currentSubTabs = currentMenu?.subTabs?.filter(id => visibleIds.has(id)) || [];
+
+  const handleMainClick = (m: MainMenuItem) => {
+    setActiveMain(m.id);
+    if (m.directTab) {
+      setSub(m.directTab);
+    } else if (m.subTabs) {
+      const firstVisible = m.subTabs.find(id => visibleIds.has(id));
+      if (firstVisible) {
+        if (firstVisible === "payroll") onPayroll();
+        else setSub(firstVisible);
+      }
+    }
+  };
+
+  // メインメニューの表示可否チェック
+  const visibleMain = MAIN_MENU.filter(m => {
+    if (m.directTab) return visibleIds.has(m.directTab);
+    if (m.subTabs) return m.subTabs.some(id => visibleIds.has(id));
+    return false;
+  });
 
   return (
-    <div style={{ display: "flex", gap: 2, marginBottom: 16, borderBottom: `1px solid ${T.border}`, overflowX: "auto", alignItems: "flex-end" }}>
-      {GROUPED_MENU.map((g, gi) => {
-        const groupTabs = g.tabs.filter(id => visibleIds.has(id));
-        if (groupTabs.length === 0) return null;
-
-        if (!g.group) {
-          return groupTabs.map(id => (
-            <button key={id} onClick={() => { setSub(id); setOpenGroup(null); }} style={{ padding: "10px 12px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: sub === id ? 700 : 400, color: sub === id ? T.primary : T.textSec, borderBottom: sub === id ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{labelMap[id]}</button>
-          ));
-        }
-
-        const isActive = groupTabs.includes(sub);
-        const isOpen = openGroup === g.group;
-        return (
-          <div key={gi} style={{ position: "relative" }}>
-            <button onClick={() => setOpenGroup(isOpen ? null : g.group)} style={{ padding: "10px 12px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? T.primary : T.textSec, borderBottom: isActive ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{g.group} ▾</button>
-            {isOpen && (
-              <div style={{ position: "absolute", top: "100%", left: 0, backgroundColor: "#fff", border: `1px solid ${T.border}`, borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", zIndex: 200, minWidth: 140, padding: "4px 0" }}>
-                {groupTabs.map(id => (
-                  <button key={id} onClick={() => { if (id === "payroll") { onPayroll(); } else { setSub(id); } setOpenGroup(null); }} style={{ display: "block", width: "100%", padding: "10px 16px", border: "none", backgroundColor: sub === id ? T.primary + "10" : "transparent", cursor: "pointer", fontSize: 13, fontWeight: sub === id ? 700 : 400, color: sub === id ? T.primary : T.text, textAlign: "left", whiteSpace: "nowrap" }}>{labelMap[id]}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
+    <div style={{ marginBottom: 16 }}>
+      {/* 1段目: メインメニュー */}
+      <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
+        {visibleMain.map(m => {
+          const isActive = activeMain === m.id;
+          return (
+            <button key={m.id} onClick={() => handleMainClick(m)} style={{ padding: "10px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? T.primary : T.textSec, borderBottom: isActive ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{m.label}</button>
+          );
+        })}
+      </div>
+      {/* 2段目: サブメニュー（グループ選択時のみ） */}
+      {currentSubTabs.length > 0 && (
+        <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+          {currentSubTabs.map(id => (
+            <button key={id} onClick={() => { if (id === "payroll") onPayroll(); else setSub(id); }} style={{
+              padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: sub === id ? 700 : 400,
+              cursor: "pointer", border: sub === id ? `2px solid ${T.primary}` : `1px solid ${T.border}`,
+              backgroundColor: sub === id ? T.primary + "15" : "#fff",
+              color: sub === id ? T.primary : T.textSec,
+            }}>{labelMap[id]}</button>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -1346,7 +1379,7 @@ export default function AdminTab({ employee }: { employee: any }) {
   return (
     <div style={{ padding: "16px 12px", maxWidth: 960, margin: "0 auto" }}>
       {isHonbu ? (
-        <GroupedSubMenu visibleTabs={visibleTabs} sub={sub} setSub={setSub} onPayroll={handlePayroll} />
+        <TwoRowMenu visibleTabs={visibleTabs} sub={sub} setSub={setSub} onPayroll={handlePayroll} />
       ) : (
         <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
           {visibleTabs.filter(t => t.id !== "payroll").map(t => (<button key={t.id} onClick={() => setSub(t.id)} style={{ padding: "10px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: sub === t.id ? 700 : 400, color: sub === t.id ? T.primary : T.textSec, borderBottom: sub === t.id ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{t.label}</button>))}
