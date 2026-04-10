@@ -455,7 +455,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     if (lrErr) { setSaving(false); showAlert("登録に失敗しました: " + lrErr.message); return; }
 
     // attendance_dailyにもupsert（出勤簿・カレンダーに表示するため）
-    await supabase.from("attendance_daily").upsert({
+    const { error: attErr } = await supabase.from("attendance_daily").upsert({
       company_id: employee.company_id,
       employee_id: employee.id,
       attendance_date: modalDay.dateStr,
@@ -465,6 +465,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     }, { onConflict: "employee_id,attendance_date" });
 
     setSaving(false);
+    if (attErr) { showAlert("出勤簿への登録に失敗しました。管理者に連絡してください。"); loadData(); return; }
     setModalDay(null); loadData();
   };
 
@@ -480,11 +481,12 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     if (error) { setSaving(false); showAlert("取消に失敗しました: " + error.message); return; }
 
     // attendance_dailyのreasonもクリア
-    await supabase.from("attendance_daily")
+    const { error: attErr } = await supabase.from("attendance_daily")
       .update({ reason: null, updated_at: new Date().toISOString() })
       .eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr);
 
     setSaving(false);
+    if (attErr) { showAlert("出勤簿の更新に失敗しました。管理者に連絡してください。"); loadData(); return; }
     setModalDay(null); loadData();
   };
 
