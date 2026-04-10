@@ -94,6 +94,7 @@ const ReasonBadges = ({ reason }: { reason: string }) => {
         else if (t.includes("選択休")) { bg = T.kibouYellow; c = "#78350F"; }
         else if (["出張", "休日出勤", "代休"].some((k) => t.includes(k))) bg = T.kinmuGreen;
         else if (t === "欠勤") bg = "#6B7280";
+        else if (t === "出勤" || t === "公休") bg = "#166534";
         return <Badge key={i} bg={bg} color={c}>{t}</Badge>;
       })}
     </div>
@@ -376,7 +377,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
       .neq("reason", "");
 
     const mapped: AttendanceEvent[] = (attData || [])
-      .filter((row: any) => row.reason && row.reason !== "公休" && row.reason !== "休職" && (row.employees as any)?.employee_code !== "D02")
+      .filter((row: any) => row.reason && row.reason !== "公休（全日）" && row.reason !== "休職" && (row.employees as any)?.employee_code !== "D02")
       .map((row: any) => ({
         employee_id: row.employee_id,
         full_name: (row.employees as any)?.full_name || "不明",
