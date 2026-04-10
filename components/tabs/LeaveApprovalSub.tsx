@@ -51,7 +51,9 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     });
 
     const { data } = await supabase.from("leave_requests").select("*")
-      .eq("company_id", employee.company_id).order("created_at", { ascending: false });
+      .eq("company_id", employee.company_id)
+      .not("type", "in", '("shift_work","shift_off")')
+      .order("created_at", { ascending: false });
     const enriched = (data || []).map((r: any) => ({
       ...r,
       emp_name: empMap[r.employee_id]?.name || "不明",
