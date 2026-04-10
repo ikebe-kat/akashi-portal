@@ -607,7 +607,8 @@ export default function PunchTab({ employee }: { employee: any }) {
         </button>
       </div>
 
-      {/* 休暇申請 */}
+      {/* 休暇・勤務申請（ダイハツ明石西は非表示） */}
+      {employee.company_id !== 'e85e40ac-71f7-4918-b2fc-36d877337b74' && (
       <div style={{ maxWidth: 440, margin: '0 auto', textAlign: 'left' }}>
         <Dot color="#EF4444" label="休暇申請" />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
@@ -633,9 +634,10 @@ export default function PunchTab({ employee }: { employee: any }) {
           ))}
         </div>
       </div>
+      )}
 
-      {/* ══════ モーダル ══════ */}
-      {modalOpen && (
+      {/* ══════ モーダル（ダイハツ明石西は非表示） ══════ */}
+      {modalOpen && employee.company_id !== 'e85e40ac-71f7-4918-b2fc-36d877337b74' && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000 }}
           onClick={() => setModalOpen(false)}>
           <div style={{ backgroundColor: '#fff', borderRadius: '12px 12px 0 0', padding: '20px 20px 28px', width: '100%', maxWidth: 480, maxHeight: '85vh', overflow: 'auto', animation: 'slideUp 0.3s ease', textAlign: 'left' }}
