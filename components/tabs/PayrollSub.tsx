@@ -314,22 +314,28 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
     }
   }
 
-  const stickyStyle = (key: string, bg: string): React.CSSProperties =>
+  // td用: 左固定のみ
+  const stickyTdStyle = (key: string, bg: string): React.CSSProperties =>
     STICKY_KEYS.includes(key) ? { position: "sticky", left: stickyLeft[key], zIndex: 20, backgroundColor: bg, boxShadow: key === "full_name" ? "2px 0 4px rgba(0,0,0,0.06)" : undefined } : {};
+
+  // th用: 左固定+上固定の両方
+  const stickyThStyle = (key: string): React.CSSProperties =>
+    STICKY_KEYS.includes(key)
+      ? { position: "sticky", top: 0, left: stickyLeft[key], zIndex: 40, backgroundColor: "#f1f3f5", boxShadow: key === "full_name" ? "2px 0 4px rgba(0,0,0,0.06)" : undefined }
+      : { position: "sticky", top: 0, zIndex: 30, backgroundColor: "#f1f3f5" };
 
   return (
     <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh", border: `1px solid ${T.border}`, borderRadius: 6 }}>
       <table style={{ borderCollapse: "collapse", fontSize: 12, whiteSpace: "nowrap", minWidth: cols.reduce((s, c) => s + c.width, 0) }}>
         <thead>
-          <tr style={{ position: "sticky", top: 0, zIndex: 20 }}>
+          <tr>
             {cols.map(c => (
               <th key={c.key} style={{
-                padding: "8px 6px", backgroundColor: "#f1f3f5", borderBottom: "2px solid #dee2e6",
+                padding: "8px 6px", borderBottom: "2px solid #dee2e6",
                 borderRight: "1px solid #eee", fontWeight: 700, fontSize: 11,
                 textAlign: STICKY_KEYS.includes(c.key) ? "left" : "right",
-                position: "sticky", top: 0, zIndex: STICKY_KEYS.includes(c.key) ? 40 : 25,
                 width: c.width, minWidth: c.width,
-                ...stickyStyle(c.key, "#f1f3f5"),
+                ...stickyThStyle(c.key),
               }}>{c.label}</th>
             ))}
           </tr>
@@ -349,7 +355,7 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
 
                   if (isEditing && c.editable) {
                     return (
-                      <td key={c.key} style={{ padding: 0, borderRight: "1px solid #eee", ...stickyStyle(c.key, "#fffde7") }}>
+                      <td key={c.key} style={{ padding: 0, borderRight: "1px solid #eee", ...stickyTdStyle(c.key, "#fffde7") }}>
                         <input autoFocus type="number" value={val || 0}
                           onChange={e => onChange(globalIdx, c.key, e.target.value)}
                           onBlur={() => setEditingCell(null)}
@@ -370,7 +376,7 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
                         fontWeight: isTotal ? 700 : 400,
                         color: isTotal ? T.primary : c.key === "absence_deduction" && val > 0 ? "#dc3545" : T.text,
                         backgroundColor: baseBg,
-                        ...stickyStyle(c.key, baseBg),
+                        ...stickyTdStyle(c.key, baseBg),
                       }}>
                       {fmtVal(c.key, val)}
                     </td>
@@ -383,8 +389,8 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
         <tfoot>
           <tr style={{ backgroundColor: "#e9ecef", fontWeight: 700 }}>
             {cols.map((c, ci) => {
-              if (ci === 0) return <td key={c.key} style={{ padding: "8px 6px", borderRight: "1px solid #eee", ...stickyStyle(c.key, "#e9ecef") }}>合計</td>;
-              if (ci === 1) return <td key={c.key} style={{ padding: "8px 6px", borderRight: "1px solid #eee", ...stickyStyle(c.key, "#e9ecef") }}></td>;
+              if (ci === 0) return <td key={c.key} style={{ padding: "8px 6px", borderRight: "1px solid #eee", ...stickyTdStyle(c.key, "#e9ecef") }}>合計</td>;
+              if (ci === 1) return <td key={c.key} style={{ padding: "8px 6px", borderRight: "1px solid #eee", ...stickyTdStyle(c.key, "#e9ecef") }}></td>;
               if (ci === cols.length - 1) return <td key={c.key} style={{ padding: "8px 6px", textAlign: "right", color: T.primary, fontSize: 13, borderRight: "1px solid #eee" }}>¥{total.toLocaleString()}</td>;
               return <td key={c.key} style={{ padding: "8px 6px", borderRight: "1px solid #eee" }}></td>;
             })}
