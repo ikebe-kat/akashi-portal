@@ -1339,15 +1339,16 @@ const TwoRowMenu = ({ visibleTabs, sub, setSub }: { visibleTabs: { id: SubTab; l
           );
         })}
       </div>
-      {/* 2段目: サブメニュー（グループ選択時のみ） */}
+      {/* 2段目: サブメニュー（グループ選択時のみ） — タグスタイル */}
       {currentSubTabs.length > 0 && (
-        <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 10, padding: "10px 12px", backgroundColor: "#f8f9fa", borderRadius: 8, flexWrap: "wrap" }}>
           {currentSubTabs.map(id => (
             <button key={id} onClick={() => setSub(id)} style={{
-              padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: sub === id ? 700 : 400,
-              cursor: "pointer", border: sub === id ? `2px solid ${T.primary}` : `1px solid ${T.border}`,
-              backgroundColor: sub === id ? T.primary + "15" : "#fff",
-              color: sub === id ? T.primary : T.textSec,
+              padding: "8px 18px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, letterSpacing: 0.3,
+              cursor: "pointer", border: "none", transition: "all 0.15s",
+              backgroundColor: sub === id ? T.primary : T.primary + "12",
+              color: sub === id ? "#fff" : T.primary,
+              boxShadow: sub === id ? "0 2px 6px " + T.primary + "40" : "none",
             }}>{labelMap[id]}</button>
           ))}
         </div>
