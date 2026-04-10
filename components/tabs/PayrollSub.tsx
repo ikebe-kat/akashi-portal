@@ -91,6 +91,7 @@ export default function PayrollSub({ employee }: { employee: any }) {
   const [success, setSuccess] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [editingCell, setEditingCell] = useState<string | null>(null); // "rowIdx-colKey"
+  const [storeFilter, setStoreFilter] = useState("all");
 
   const ymOptions = generateYearMonthOptions();
   const periods = getPeriods(yearMonth);
@@ -99,22 +100,25 @@ export default function PayrollSub({ employee }: { employee: any }) {
     setLoading(true); setError(null); setSuccess(null);
     try {
       const { data, error: fe } = await supabase.from("payroll_monthly")
-        .select("*, employees (employee_code, full_name, employment_type)")
+        .select("*, employees (employee_code, full_name, employment_type, store_id, stores (store_name))")
         .eq("company_id", AKASHI_COMPANY_ID)
         .eq("target_year", parseInt(yearMonth.split("-")[0]))
         .eq("target_month", parseInt(yearMonth.split("-")[1]))
         .order("employee_id");
       if (fe) throw fe;
-      // flatten
-      setRows((data || []).map((r: any) => ({
+      // flatten & sort by employee_code
+      const mapped = (data || []).map((r: any) => ({
         ...r,
         employee_code: r.employees?.employee_code || "",
         full_name: r.employees?.full_name || "",
         employment_type: r.employees?.employment_type || "",
+        store_name: r.employees?.stores?.store_name || "",
         hourly_rate_weekday: r.hourly_rate_weekday || 0,
         hourly_rate_saturday: r.hourly_rate_saturday || 0,
         hourly_rate_sunday: r.hourly_rate_sunday || 0,
-      })));
+      }));
+      mapped.sort((a: any, b: any) => a.employee_code.localeCompare(b.employee_code));
+      setRows(mapped);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   }, [yearMonth]);
@@ -185,11 +189,21 @@ export default function PayrollSub({ employee }: { employee: any }) {
     finally { setSaving(false); }
   };
 
-  const ftRows = rows.filter(r => r.employment_type !== "パート");
-  const ptRows = rows.filter(r => r.employment_type === "パート");
+  const matchStore = (r: any) => {
+    if (storeFilter === "all") return true;
+    return (r.store_name || "").includes(storeFilter);
+  };
+  const ftRows = rows.filter(r => r.employment_type !== "パート" && matchStore(r));
+  const ptRows = rows.filter(r => r.employment_type === "パート" && matchStore(r));
 
   const ftTotal = ftRows.reduce((s, r) => s + (r.total_payment || 0), 0);
   const ptTotal = ptRows.reduce((s, r) => s + (r.total_payment || 0), 0);
+
+  const STORE_FILTERS = [
+    { label: "全店舗", value: "all" },
+    { label: "大久保店", value: "大久保" },
+    { label: "魚住店", value: "魚住" },
+  ];
 
   return (
     <div>
@@ -225,6 +239,20 @@ export default function PayrollSub({ employee }: { employee: any }) {
       )}
 
       {loading && <p style={{ fontSize: 13, color: "#888" }}>読み込み中...</p>}
+
+      {/* 店舗フィルター */}
+      {rows.length > 0 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+          {STORE_FILTERS.map(f => (
+            <button key={f.value} onClick={() => setStoreFilter(f.value)} style={{
+              padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: storeFilter === f.value ? 700 : 400,
+              cursor: "pointer", border: storeFilter === f.value ? `2px solid ${T.primary}` : `1px solid ${T.border}`,
+              backgroundColor: storeFilter === f.value ? T.primary + "15" : "#fff",
+              color: storeFilter === f.value ? T.primary : T.textSec,
+            }}>{f.label}</button>
+          ))}
+        </div>
+      )}
 
       {/* 正社員テーブル */}
       {ftRows.length > 0 && (
