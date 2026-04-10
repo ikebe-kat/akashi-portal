@@ -318,16 +318,16 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
     STICKY_KEYS.includes(key) ? { position: "sticky", left: stickyLeft[key], zIndex: 20, backgroundColor: bg, boxShadow: key === "full_name" ? "2px 0 4px rgba(0,0,0,0.06)" : undefined } : {};
 
   return (
-    <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 6 }}>
+    <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh", border: `1px solid ${T.border}`, borderRadius: 6 }}>
       <table style={{ borderCollapse: "collapse", fontSize: 12, whiteSpace: "nowrap", minWidth: cols.reduce((s, c) => s + c.width, 0) }}>
         <thead>
-          <tr>
+          <tr style={{ position: "sticky", top: 0, zIndex: 20 }}>
             {cols.map(c => (
               <th key={c.key} style={{
                 padding: "8px 6px", backgroundColor: "#f1f3f5", borderBottom: "2px solid #dee2e6",
                 borderRight: "1px solid #eee", fontWeight: 700, fontSize: 11,
                 textAlign: STICKY_KEYS.includes(c.key) ? "left" : "right",
-                position: "sticky", top: 0, zIndex: STICKY_KEYS.includes(c.key) ? 30 : 10,
+                position: "sticky", top: 0, zIndex: STICKY_KEYS.includes(c.key) ? 40 : 25,
                 width: c.width, minWidth: c.width,
                 ...stickyStyle(c.key, "#f1f3f5"),
               }}>{c.label}</th>
