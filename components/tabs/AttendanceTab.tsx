@@ -107,6 +107,10 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   const [daikyuDate, setDaikyuDate] = useState("");
   const [requestComment, setRequestComment] = useState("");
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
+  const [shiftReqs, setShiftReqs] = useState<any[]>([]);
+  const [empShiftType, setEmpShiftType] = useState<string>("work");
+
+  const isAkashiPart = employee?.employment_type === "パート" && employee?.company_id === "e85e40ac-71f7-4918-b2fc-36d877337b74";
 
   /* カスタムダイアログ */
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -161,6 +165,21 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       .from("leave_requests").select("attendance_date, end_date, status, reason, reject_reason")
       .eq("employee_id", employee.id).in("status", ["申請中", "却下"]);
     setLeaveRequests(lrData ?? []);
+
+    // パート: shift_typeとシフト登録データを取得
+    if (employee.employment_type === "パート" && employee.company_id === "e85e40ac-71f7-4918-b2fc-36d877337b74") {
+      const { data: cfg } = await supabase.from("employee_payroll_config")
+        .select("shift_type").eq("employee_id", employee.id).limit(1).maybeSingle();
+      setEmpShiftType(cfg?.shift_type || "work");
+
+      const shiftType = cfg?.shift_type === "off" ? "shift_off" : "shift_work";
+      const { data: sReqs } = await supabase.from("leave_requests")
+        .select("id, attendance_date, type, status")
+        .eq("employee_id", employee.id).eq("type", shiftType).eq("status", "approved")
+        .gte("attendance_date", from).lte("attendance_date", to);
+      setShiftReqs(sReqs ?? []);
+    }
+
     setLoading(false);
   }, [employee, yr, mo]);
 
@@ -416,6 +435,42 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     }, "取消", "#DC2626");
   };
 
+  /* ── パート: シフト登録/取消 ── */
+  const submitShift = async () => {
+    if (!modalDay) return;
+    setSaving(true);
+    const shiftType = empShiftType === "off" ? "shift_off" : "shift_work";
+    const { error } = await supabase.from("leave_requests").insert({
+      company_id: employee.company_id,
+      employee_id: employee.id,
+      store_id: employee.store_id,
+      attendance_date: modalDay.dateStr,
+      type: shiftType,
+      status: "approved",
+      reason: empShiftType === "off" ? "公休（全日）" : "出勤日登録",
+    });
+    setSaving(false);
+    if (!error) { setModalDay(null); loadData(); }
+    else { showAlert("登録に失敗しました: " + error.message); }
+  };
+
+  const cancelShift = async () => {
+    if (!modalDay) return;
+    const shiftType = empShiftType === "off" ? "shift_off" : "shift_work";
+    const req = shiftReqs.find((r: any) => r.attendance_date === modalDay.dateStr && r.type === shiftType);
+    if (!req) return;
+    setSaving(true);
+    const { error } = await supabase.from("leave_requests").delete().eq("id", req.id);
+    setSaving(false);
+    if (!error) { setModalDay(null); loadData(); }
+    else { showAlert("取消に失敗しました: " + error.message); }
+  };
+
+  const hasShiftReq = (dateStr: string) => {
+    const shiftType = empShiftType === "off" ? "shift_off" : "shift_work";
+    return shiftReqs.some((r: any) => r.attendance_date === dateStr && r.type === shiftType);
+  };
+
   /* ══════════ JSX ══════════ */
   return (
     <div style={{ padding: "16px 12px", maxWidth: 720, margin: "0 auto" }}>
@@ -528,7 +583,50 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                   <button onClick={() => setModalDay(null)} style={{ marginTop: 8, width: "100%", padding: "12px", borderRadius: "6px", border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 14, cursor: "pointer" }}>閉じる</button>
                 </div>
               ) : null;
-            })() : <>
+            })() : isAkashiPart ? <>
+            {/* ── パート専用モーダル ── */}
+            <Dot color={T.holidayRed} label="休暇申請" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 16 }}>
+              <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
+            </div>
+
+            {(selZenjitsu === "有給（全日）") && (
+              <div style={{ padding: 14, borderRadius: "6px", border: "1px solid #3B82F6", backgroundColor: "#EFF6FF", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1D4ED8", marginBottom: 8 }}>有給申請理由（必須）</div>
+                <textarea value={requestComment} onChange={e => setRequestComment(e.target.value)} placeholder="例：私用のため、通院のため"
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: "1px solid #93C5FD", fontSize: 13, resize: "vertical", minHeight: 50, boxSizing: "border-box" }} />
+              </div>
+            )}
+
+            <Dot color={T.kinmuGreen} label="シフト登録" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 16 }}>
+              {hasShiftReq(modalDay.dateStr) ? (
+                <button onClick={cancelShift} disabled={saving} style={{
+                  padding: "12px", borderRadius: "6px", border: "1px solid #DC2626", backgroundColor: "#fff",
+                  color: "#DC2626", fontSize: 14, fontWeight: 600, cursor: "pointer",
+                }}>{saving ? "処理中..." : "取消"}</button>
+              ) : (
+                <button onClick={submitShift} disabled={saving} style={{
+                  padding: "12px", borderRadius: "6px", border: "none",
+                  backgroundColor: T.kinmuGreen, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer",
+                }}>{saving ? "処理中..." : empShiftType === "off" ? "公休（全日）" : "出勤日登録"}</button>
+              )}
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, color: T.textSec, display: "block", marginBottom: 4 }}>備考</label>
+              <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="備考"
+                style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: `1px solid ${T.border}`, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setModalDay(null)} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 14, cursor: "pointer" }}>閉じる</button>
+              {selZenjitsu === "有給（全日）" && (
+                <button onClick={submitReason} disabled={saving || !previewReason} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: "none", backgroundColor: "#1D4ED8", color: "#fff", fontSize: 14, fontWeight: 600, cursor: previewReason ? "pointer" : "default" }}>{saving ? "処理中..." : "申請"}</button>
+              )}
+            </div>
+            </> : <>
+            {/* ── 正社員モーダル（既存） ── */}
             {modalDay.rejected && !modalDay.reason && (() => {
               const rlr = leaveRequests.find((r: any) => r.status === "却下" && r.attendance_date === modalDay.dateStr);
               return rlr ? (

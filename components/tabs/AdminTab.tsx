@@ -12,11 +12,12 @@ import EmployeeManageSub from "@/components/tabs/EmployeeManageSub";
 import SettingsSub from "@/components/tabs/SettingsSub";
 import LeaveApprovalSub from "@/components/tabs/LeaveApprovalSub";
 import PayrollSub from "@/components/tabs/PayrollSub";
+import ShiftSub from "@/components/tabs/ShiftSub";
 
 interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
 
-type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "settings" | "payroll";
+type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "settings" | "payroll" | "shift";
 const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "super_only" | "all" }[] = [
   { id: "notifications", label: "お知らせ", visibleTo: "owner_or_kondo" },
   { id: "paidleave", label: "有給管理", visibleTo: "owner_or_kondo" },
@@ -30,6 +31,7 @@ const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "supe
   { id: "employee_manage", label: "従業員管理", visibleTo: "super_only" },
   { id: "settings", label: "設定", visibleTo: "owner_only" },
   { id: "payroll", label: "給与計算", visibleTo: "owner_only" },
+  { id: "shift", label: "シフト管理", visibleTo: "all" },
 ];
 const OWNER_CODES = ["D02", "D18", "D67"];
 const SUPER_CODES = ["D02", "D18", "D67"];
@@ -1286,6 +1288,7 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
 type MainMenuItem = { id: string; label: string; subTabs?: SubTab[]; directTab?: SubTab };
 const MAIN_MENU: MainMenuItem[] = [
   { id: "g_yukyu", label: "有給管理", subTabs: ["notifications", "paidleave", "leave_approval"] },
+  { id: "shift", label: "シフト管理", directTab: "shift" },
   { id: "individual", label: "個人出勤簿", directTab: "individual" },
   { id: "daily", label: "日次一覧", directTab: "daily" },
   { id: "monthly", label: "月次サマリ", directTab: "monthly" },
@@ -1364,7 +1367,7 @@ export default function AdminTab({ employee }: { employee: any }) {
   const isHonbu = HONBU_CODES.includes(myCode);
   const isIwanaga = myCode === "D49";
   const visibleTabs = ALL_SUB_TABS.filter(t => {
-    if (isIwanaga) return t.id === "documents" || t.id === "employee_manage" || t.id === "individual" || t.id === "daily" || t.id === "monthly" || t.id === "payroll" || t.id === "sharoushi";
+    if (isIwanaga) return t.id === "documents" || t.id === "employee_manage" || t.id === "individual" || t.id === "daily" || t.id === "monthly" || t.id === "payroll" || t.id === "sharoushi" || t.id === "shift";
     if (t.visibleTo === "owner_only") return isOwner || isHonbu;
     if (t.visibleTo === "owner_or_kondo") return isOwner;
     if (t.visibleTo === "super_only") return isOwner || isSuper;
@@ -1394,6 +1397,7 @@ export default function AdminTab({ employee }: { employee: any }) {
       {sub === "employee_manage" && <EmployeeManageSub employee={employee} />}
       {sub === "settings" && <SettingsSub employee={employee} />}
       {sub === "payroll" && <PayrollSub employee={employee} />}
+      {sub === "shift" && <ShiftSub employee={employee} />}
     </div>
   );
 }
