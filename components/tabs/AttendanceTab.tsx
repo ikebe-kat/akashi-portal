@@ -131,7 +131,6 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   /* ── データ取得 ── */
   const loadData = useCallback(async () => {
     if (!employee?.id) return;
-    setLoading(true);
     const from = `${yr}-${String(mo).padStart(2, "0")}-01`;
     const toDate = new Date(yr, mo, 0);
     const to = `${yr}-${String(mo).padStart(2, "0")}-${String(toDate.getDate()).padStart(2, "0")}`;
