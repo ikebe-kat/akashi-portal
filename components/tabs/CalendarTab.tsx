@@ -94,7 +94,8 @@ const ReasonBadges = ({ reason }: { reason: string }) => {
         else if (t.includes("選択休")) { bg = T.kibouYellow; c = "#78350F"; }
         else if (["出張", "休日出勤", "代休"].some((k) => t.includes(k))) bg = T.kinmuGreen;
         else if (t === "欠勤") bg = "#6B7280";
-        else if (t === "出勤" || t === "公休") bg = "#166534";
+        else if (t === "公休") { bg = "#FEF9C3"; c = "#78350F"; }
+        else if (t === "出勤") { bg = "#DCFCE7"; c = T.kinmuGreen; }
         return <Badge key={i} bg={bg} color={c}>{t}</Badge>;
       })}
     </div>
