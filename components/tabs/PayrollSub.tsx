@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { T } from "@/lib/constants";
 import { calculateAll, savePayrollResults } from "@/lib/payroll/calculatePayroll";
-import type { PayrollResult } from "@/lib/payroll/types";
 
 const AKASHI_COMPANY_ID = "e85e40ac-71f7-4918-b2fc-36d877337b74";
 
@@ -20,25 +19,84 @@ function getDefaultYearMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
-function formatMinutes(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `${h}時間${m > 0 ? m + "分" : ""}`;
+function getPeriods(ym: string) {
+  const [y, m] = ym.split("-").map(Number);
+  const pm = m === 1 ? 12 : m - 1;
+  const py = m === 1 ? y - 1 : y;
+  const ld = new Date(py, pm, 0).getDate();
+  return {
+    ft: `${py}/${pm}/1〜${py}/${pm}/${ld}`,
+    pt: `${py}/${pm}/11〜${y}/${m}/10`,
+  };
+}
+
+// 正社員用のカラム定義
+const FT_COLS: { key: string; label: string; editable: boolean; width: number }[] = [
+  { key: "employee_code", label: "コード", editable: false, width: 70 },
+  { key: "full_name", label: "氏名", editable: false, width: 100 },
+  { key: "work_days", label: "出勤", editable: false, width: 50 },
+  { key: "base_salary", label: "基本給", editable: true, width: 90 },
+  { key: "position_allowance", label: "役職手当", editable: true, width: 80 },
+  { key: "qualification_allowance", label: "資格手当", editable: true, width: 80 },
+  { key: "commute_allowance", label: "通勤手当", editable: true, width: 80 },
+  { key: "dependent_allowance", label: "扶養手当", editable: true, width: 80 },
+  { key: "fixed_overtime", label: "固定残業", editable: true, width: 80 },
+  { key: "overtime_pay", label: "超過残業", editable: true, width: 80 },
+  { key: "adjustment_allowance", label: "調整手当", editable: true, width: 80 },
+  { key: "absence_deduction", label: "欠勤控除", editable: true, width: 80 },
+  { key: "total_payment", label: "支給合計", editable: false, width: 100 },
+];
+
+// パート用のカラム定義
+const PT_COLS: { key: string; label: string; editable: boolean; width: number }[] = [
+  { key: "employee_code", label: "コード", editable: false, width: 70 },
+  { key: "full_name", label: "氏名", editable: false, width: 100 },
+  { key: "work_days", label: "出勤", editable: false, width: 50 },
+  { key: "hourly_weekday_minutes", label: "平日時間", editable: true, width: 75 },
+  { key: "hourly_rate_weekday", label: "平日時給", editable: true, width: 75 },
+  { key: "hourly_saturday_minutes", label: "土曜時間", editable: true, width: 75 },
+  { key: "hourly_rate_saturday", label: "土曜時給", editable: true, width: 75 },
+  { key: "hourly_sunday_minutes", label: "日曜時間", editable: true, width: 75 },
+  { key: "hourly_rate_sunday", label: "日曜時給", editable: true, width: 75 },
+  { key: "base_salary", label: "基本給", editable: false, width: 90 },
+  { key: "commute_allowance", label: "通勤手当", editable: true, width: 80 },
+  { key: "adjustment_allowance", label: "調整手当", editable: true, width: 80 },
+  { key: "total_payment", label: "支給合計", editable: false, width: 100 },
+];
+
+function recalcFtTotal(r: any): number {
+  return (r.base_salary||0)+(r.position_allowance||0)+(r.qualification_allowance||0)
+    +(r.commute_allowance||0)+(r.dependent_allowance||0)+(r.fixed_overtime||0)
+    +(r.overtime_pay||0)+(r.adjustment_allowance||0)-(r.absence_deduction||0);
+}
+function recalcPtTotal(r: any): number {
+  const base = Math.round(((r.hourly_weekday_minutes||0)/60)*(r.hourly_rate_weekday||0)
+    +((r.hourly_saturday_minutes||0)/60)*(r.hourly_rate_saturday||0)
+    +((r.hourly_sunday_minutes||0)/60)*(r.hourly_rate_sunday||0));
+  return base + (r.commute_allowance||0) + (r.adjustment_allowance||0);
+}
+function recalcPtBase(r: any): number {
+  return Math.round(((r.hourly_weekday_minutes||0)/60)*(r.hourly_rate_weekday||0)
+    +((r.hourly_saturday_minutes||0)/60)*(r.hourly_rate_saturday||0)
+    +((r.hourly_sunday_minutes||0)/60)*(r.hourly_rate_sunday||0));
 }
 
 export default function PayrollSub({ employee }: { employee: any }) {
   const [yearMonth, setYearMonth] = useState(getDefaultYearMonth());
-  const [savedResults, setSavedResults] = useState<any[]>([]);
+  const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [calculating, setCalculating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [editingCell, setEditingCell] = useState<string | null>(null); // "rowIdx-colKey"
 
-  const yearMonthOptions = generateYearMonthOptions();
+  const ymOptions = generateYearMonthOptions();
+  const periods = getPeriods(yearMonth);
 
-  const loadSavedResults = useCallback(async () => {
-    setLoading(true); setError(null);
+  const loadData = useCallback(async () => {
+    setLoading(true); setError(null); setSuccess(null);
     try {
       const { data, error: fe } = await supabase.from("payroll_monthly")
         .select("*, employees (employee_code, full_name, employment_type)")
@@ -47,64 +105,109 @@ export default function PayrollSub({ employee }: { employee: any }) {
         .eq("target_month", parseInt(yearMonth.split("-")[1]))
         .order("employee_id");
       if (fe) throw fe;
-      setSavedResults(data || []);
+      // flatten
+      setRows((data || []).map((r: any) => ({
+        ...r,
+        employee_code: r.employees?.employee_code || "",
+        full_name: r.employees?.full_name || "",
+        employment_type: r.employees?.employment_type || "",
+        hourly_rate_weekday: r.hourly_rate_weekday || 0,
+        hourly_rate_saturday: r.hourly_rate_saturday || 0,
+        hourly_rate_sunday: r.hourly_rate_sunday || 0,
+      })));
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   }, [yearMonth]);
 
-  useEffect(() => { loadSavedResults(); }, [loadSavedResults]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handleCalculate = async () => {
-    if (savedResults.length > 0 && !showConfirm) { setShowConfirm(true); return; }
-    setShowConfirm(false); setCalculating(true); setError(null);
+    if (rows.length > 0 && !showConfirm) { setShowConfirm(true); return; }
+    setShowConfirm(false); setCalculating(true); setError(null); setSuccess(null);
     try {
       const r = await calculateAll({ yearMonth });
       await savePayrollResults(r, yearMonth);
-      await loadSavedResults();
+      await loadData();
+      setSuccess("計算完了");
     } catch (e: any) { setError(e.message); }
     finally { setCalculating(false); }
   };
 
-  const displayData = savedResults.map((r: any) => ({
-    id: r.id, employee_id: r.employee_id,
-    employee_code: r.employees?.employee_code || "",
-    employee_name: r.employees?.full_name || "",
-    employment_type: r.employees?.employment_type || r.employment_type || "",
-    work_days: r.work_days, gross_total: r.total_payment,
-    has_warning: r.overtime_exceeded, calculated_at: r.calculated_at,
-  }));
-  const fulltimeData = displayData.filter(d => d.employment_type !== "パート");
-  const parttimeData = displayData.filter(d => d.employment_type === "パート");
+  const handleCellChange = (idx: number, key: string, value: string) => {
+    const num = parseInt(value) || 0;
+    setRows(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [key]: num };
+      const r = next[idx];
+      const isPt = r.employment_type === "パート";
+      if (isPt) {
+        r.base_salary = recalcPtBase(r);
+        r.total_payment = recalcPtTotal(r);
+      } else {
+        r.total_payment = recalcFtTotal(r);
+      }
+      return next;
+    });
+  };
 
-  const [y, m] = yearMonth.split("-").map(Number);
-  const prevM = m === 1 ? 12 : m - 1;
-  const prevY = m === 1 ? y - 1 : y;
-  const ftPeriod = `${prevY}/${prevM}/1〜${prevY}/${prevM}/${new Date(prevY, prevM, 0).getDate()}`;
-  const ptPeriod = `${prevY}/${prevM}/11〜${y}/${m}/10`;
+  const handleSaveAll = async () => {
+    setSaving(true); setError(null); setSuccess(null);
+    try {
+      for (const r of rows) {
+        const isPt = r.employment_type === "パート";
+        const uf: any = {
+          total_payment: r.total_payment,
+          adjustment_allowance: r.adjustment_allowance || 0,
+          calculated_at: new Date().toISOString(),
+        };
+        if (isPt) {
+          uf.hourly_weekday_minutes = r.hourly_weekday_minutes || 0;
+          uf.hourly_saturday_minutes = r.hourly_saturday_minutes || 0;
+          uf.hourly_sunday_minutes = r.hourly_sunday_minutes || 0;
+          uf.base_salary = r.base_salary;
+          uf.commute_allowance = r.commute_allowance || 0;
+        } else {
+          uf.base_salary = r.base_salary || 0;
+          uf.position_allowance = r.position_allowance || 0;
+          uf.qualification_allowance = r.qualification_allowance || 0;
+          uf.commute_allowance = r.commute_allowance || 0;
+          uf.dependent_allowance = r.dependent_allowance || 0;
+          uf.fixed_overtime = r.fixed_overtime || 0;
+          uf.overtime_pay = r.overtime_pay || 0;
+          uf.absence_deduction = r.absence_deduction || 0;
+        }
+        const { error: ue } = await supabase.from("payroll_monthly").update(uf).eq("id", r.id);
+        if (ue) throw ue;
+      }
+      setSuccess("保存しました");
+      await loadData();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
 
-  // 詳細表示中
-  if (detailId) {
-    return <PayrollDetail employeeId={detailId} yearMonth={yearMonth} onBack={() => { setDetailId(null); loadSavedResults(); }} />;
-  }
+  const ftRows = rows.filter(r => r.employment_type !== "パート");
+  const ptRows = rows.filter(r => r.employment_type === "パート");
+
+  const ftTotal = ftRows.reduce((s, r) => s + (r.total_payment || 0), 0);
+  const ptTotal = ptRows.reduce((s, r) => s + (r.total_payment || 0), 0);
 
   return (
     <div>
       {/* 操作エリア */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, padding: 14, backgroundColor: "#f8f9fa", borderRadius: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: 14, backgroundColor: "#f8f9fa", borderRadius: 8, flexWrap: "wrap" }}>
         <label style={{ fontWeight: 700, fontSize: 13 }}>支給年月:</label>
         <select value={yearMonth} onChange={e => setYearMonth(e.target.value)} style={{ padding: "7px 10px", borderRadius: 4, border: "1px solid #ccc", fontSize: 14 }}>
-          {yearMonthOptions.map(ym => <option key={ym} value={ym}>{ym.replace("-", "年")}月</option>)}
+          {ymOptions.map(ym => <option key={ym} value={ym}>{ym.replace("-", "年")}月</option>)}
         </select>
         <button onClick={handleCalculate} disabled={calculating} style={{ padding: "8px 20px", backgroundColor: calculating ? "#ccc" : T.primary, color: "#fff", border: "none", borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: calculating ? "not-allowed" : "pointer" }}>
           {calculating ? "計算中..." : "計算実行"}
         </button>
-        {savedResults.length > 0 && <span style={{ color: "#666", fontSize: 12 }}>最終計算: {new Date(savedResults[0]?.calculated_at).toLocaleString("ja-JP")}</span>}
+        {rows.length > 0 && <span style={{ color: "#666", fontSize: 12 }}>最終: {new Date(rows[0]?.calculated_at).toLocaleString("ja-JP")}</span>}
       </div>
 
       {showConfirm && (
-        <div style={{ padding: 14, marginBottom: 14, backgroundColor: "#fff3cd", border: "1px solid #ffc107", borderRadius: 8 }}>
-          <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13 }}>既に給与データが存在します。上書きしますか？</p>
-          <p style={{ fontSize: 12, color: "#666", marginBottom: 10 }}>※ 調整手当は引き継がれます</p>
+        <div style={{ padding: 14, marginBottom: 14, backgroundColor: "#fff3cd", border: "1px solid #ffc107", borderRadius: 8, fontSize: 13 }}>
+          <p style={{ fontWeight: 700, marginBottom: 6 }}>既にデータがあります。上書きしますか？</p>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={handleCalculate} style={{ padding: "6px 14px", backgroundColor: "#dc3545", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>上書き</button>
             <button onClick={() => setShowConfirm(false)} style={{ padding: "6px 14px", backgroundColor: "#6c757d", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>キャンセル</button>
@@ -112,243 +215,126 @@ export default function PayrollSub({ employee }: { employee: any }) {
         </div>
       )}
 
-      {error && <div style={{ padding: 10, marginBottom: 14, backgroundColor: "#f8d7da", border: "1px solid #f5c6cb", borderRadius: 8, color: "#721c24", fontSize: 13 }}>{error}</div>}
+      {error && <div style={{ padding: 10, marginBottom: 14, backgroundColor: "#f8d7da", borderRadius: 8, color: "#721c24", fontSize: 13 }}>{error}</div>}
+      {success && <div style={{ padding: 10, marginBottom: 14, backgroundColor: "#d4edda", borderRadius: 8, color: "#155724", fontSize: 13 }}>{success}</div>}
 
-      {savedResults.length > 0 && (
+      {rows.length > 0 && (
         <div style={{ marginBottom: 14, fontSize: 12, color: "#555" }}>
-          <span>正社員: {ftPeriod}</span><span style={{ marginLeft: 20 }}>パート: {ptPeriod}</span>
+          <span>正社員: {periods.ft}</span><span style={{ marginLeft: 20 }}>パート: {periods.pt}</span>
         </div>
       )}
 
       {loading && <p style={{ fontSize: 13, color: "#888" }}>読み込み中...</p>}
 
-      {fulltimeData.length > 0 && (
+      {/* 正社員テーブル */}
+      {ftRows.length > 0 && (
         <>
-          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, marginTop: 20 }}>正社員（月給制）</h3>
-          <PayrollTable data={fulltimeData} onRowClick={setDetailId} />
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, marginTop: 20 }}>正社員（月給制）</h3>
+          <SpreadTable cols={FT_COLS} data={ftRows} allRows={rows} editingCell={editingCell} setEditingCell={setEditingCell} onChange={handleCellChange} total={ftTotal} />
         </>
       )}
-      {parttimeData.length > 0 && (
+
+      {/* パートテーブル */}
+      {ptRows.length > 0 && (
         <>
-          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, marginTop: 24 }}>パート（時給制）</h3>
-          <PayrollTable data={parttimeData} onRowClick={setDetailId} />
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, marginTop: 24 }}>パート（時給制）</h3>
+          <SpreadTable cols={PT_COLS} data={ptRows} allRows={rows} editingCell={editingCell} setEditingCell={setEditingCell} onChange={handleCellChange} total={ptTotal} />
         </>
       )}
-      {!loading && savedResults.length === 0 && (
-        <p style={{ color: "#888", marginTop: 28, textAlign: "center", fontSize: 13 }}>{yearMonth.replace("-", "年")}月の給与データはまだありません。</p>
+
+      {!loading && rows.length === 0 && (
+        <p style={{ color: "#888", marginTop: 28, textAlign: "center", fontSize: 13 }}>{yearMonth.replace("-", "年")}月のデータはまだありません。</p>
+      )}
+
+      {/* 一括保存ボタン */}
+      {rows.length > 0 && (
+        <div style={{ marginTop: 20, display: "flex", gap: 12, alignItems: "center" }}>
+          <button onClick={handleSaveAll} disabled={saving} style={{ padding: "10px 32px", backgroundColor: saving ? "#ccc" : T.primary, color: "#fff", border: "none", borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}>
+            {saving ? "保存中..." : "全員分を保存"}
+          </button>
+          <span style={{ fontSize: 12, color: "#888" }}>正社員+パート合計: ¥{(ftTotal + ptTotal).toLocaleString()}</span>
+        </div>
       )}
     </div>
   );
 }
 
-/* ── 一覧テーブル ── */
-function PayrollTable({ data, onRowClick }: { data: { employee_id: string; employee_code: string; employee_name: string; employment_type: string; work_days: number; gross_total: number; has_warning: boolean }[]; onRowClick: (id: string) => void }) {
+/* ── Excel風テーブル ── */
+function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChange, total }: {
+  cols: { key: string; label: string; editable: boolean; width: number }[];
+  data: any[]; allRows: any[];
+  editingCell: string | null; setEditingCell: (v: string | null) => void;
+  onChange: (idx: number, key: string, value: string) => void;
+  total: number;
+}) {
+  const fmtVal = (key: string, val: any) => {
+    if (key === "work_days") return val != null ? `${val}` : "0";
+    if (key.includes("minutes")) return val != null ? `${val}` : "0";
+    if (key === "employee_code" || key === "full_name") return val || "";
+    return val != null ? `¥${Number(val).toLocaleString()}` : "¥0";
+  };
+
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-        <thead><tr style={{ backgroundColor: "#f1f3f5" }}>
-          <th style={th}>コード</th><th style={th}>氏名</th><th style={th}>区分</th>
-          <th style={{ ...th, textAlign: "right" }}>出勤</th><th style={{ ...th, textAlign: "right" }}>支給合計</th><th style={th}>状態</th>
-        </tr></thead>
-        <tbody>{data.map(r => (
-          <tr key={r.employee_id} onClick={() => onRowClick(r.employee_id)} style={{ cursor: "pointer", borderBottom: "1px solid #dee2e6", backgroundColor: r.has_warning ? "#fff3cd" : "transparent" }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = r.has_warning ? "#ffe69c" : "#f8f9fa"; }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = r.has_warning ? "#fff3cd" : "transparent"; }}>
-            <td style={td}>{r.employee_code}</td><td style={td}>{r.employee_name}</td><td style={td}>{r.employment_type}</td>
-            <td style={{ ...td, textAlign: "right" }}>{r.work_days}日</td>
-            <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>¥{r.gross_total.toLocaleString()}</td>
-            <td style={td}>{r.has_warning && <span style={{ color: "#dc3545", fontSize: 12 }}>要確認</span>}</td>
+    <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 6 }}>
+      <table style={{ borderCollapse: "collapse", fontSize: 12, whiteSpace: "nowrap", minWidth: cols.reduce((s, c) => s + c.width, 0) }}>
+        <thead>
+          <tr>
+            {cols.map(c => (
+              <th key={c.key} style={{ padding: "8px 6px", backgroundColor: "#f1f3f5", borderBottom: "2px solid #dee2e6", borderRight: "1px solid #eee", fontWeight: 700, fontSize: 11, textAlign: c.key === "employee_code" || c.key === "full_name" ? "left" : "right", position: "sticky", top: 0, zIndex: 10, width: c.width, minWidth: c.width }}>{c.label}</th>
+            ))}
           </tr>
-        ))}</tbody>
-        <tfoot><tr style={{ backgroundColor: "#e9ecef", fontWeight: 700 }}>
-          <td style={td} colSpan={4}>合計</td>
-          <td style={{ ...td, textAlign: "right" }}>¥{data.reduce((s, r) => s + r.gross_total, 0).toLocaleString()}</td>
-          <td style={td}></td>
-        </tr></tfoot>
+        </thead>
+        <tbody>
+          {data.map((row) => {
+            const globalIdx = allRows.indexOf(row);
+            return (
+              <tr key={row.id} style={{ borderBottom: "1px solid #eee" }}>
+                {cols.map(c => {
+                  const cellId = `${globalIdx}-${c.key}`;
+                  const isEditing = editingCell === cellId;
+                  const isRight = c.key !== "employee_code" && c.key !== "full_name";
+                  const isTotal = c.key === "total_payment";
+                  const val = row[c.key];
+
+                  if (isEditing && c.editable) {
+                    return (
+                      <td key={c.key} style={{ padding: 0, borderRight: "1px solid #eee" }}>
+                        <input autoFocus type="number" value={val || 0}
+                          onChange={e => onChange(globalIdx, c.key, e.target.value)}
+                          onBlur={() => setEditingCell(null)}
+                          onKeyDown={e => { if (e.key === "Enter" || e.key === "Tab") setEditingCell(null); }}
+                          style={{ width: "100%", padding: "6px 4px", border: `2px solid ${T.primary}`, borderRadius: 0, textAlign: "right", fontSize: 12, outline: "none", boxSizing: "border-box", backgroundColor: "#fffde7" }}
+                        />
+                      </td>
+                    );
+                  }
+
+                  return (
+                    <td key={c.key}
+                      onClick={() => c.editable ? setEditingCell(cellId) : undefined}
+                      style={{
+                        padding: "7px 6px", borderRight: "1px solid #eee",
+                        textAlign: isRight ? "right" : "left",
+                        cursor: c.editable ? "pointer" : "default",
+                        fontWeight: isTotal ? 700 : 400,
+                        color: isTotal ? T.primary : c.key === "absence_deduction" && val > 0 ? "#dc3545" : T.text,
+                        backgroundColor: c.editable ? "#fafbfc" : "transparent",
+                      }}>
+                      {fmtVal(c.key, val)}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr style={{ backgroundColor: "#e9ecef", fontWeight: 700 }}>
+            <td style={{ padding: "8px 6px", borderRight: "1px solid #eee" }} colSpan={cols.length - 1}>合計</td>
+            <td style={{ padding: "8px 6px", textAlign: "right", color: T.primary, fontSize: 13 }}>¥{total.toLocaleString()}</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
-}
-const th: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontWeight: 700, borderBottom: "2px solid #dee2e6", fontSize: 12 };
-const td: React.CSSProperties = { padding: "8px 10px" };
-
-/* ── 個人詳細（インライン表示） ── */
-function PayrollDetail({ employeeId, yearMonth, onBack }: { employeeId: string; yearMonth: string; onBack: () => void }) {
-  const [data, setData] = useState<any>(null);
-  const [editData, setEditData] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data: row, error: fe } = await supabase.from("payroll_monthly")
-        .select("*, employees (employee_code, full_name)")
-        .eq("employee_id", employeeId)
-        .eq("target_year", parseInt(yearMonth.split("-")[0]))
-        .eq("target_month", parseInt(yearMonth.split("-")[1]))
-        .eq("company_id", AKASHI_COMPANY_ID).single();
-      if (fe) throw fe;
-      setData(row);
-      setEditData({
-        base_salary: row.base_salary, position_allowance: row.position_allowance,
-        qualification_allowance: row.qualification_allowance, commute_allowance: row.commute_allowance,
-        dependent_allowance: row.dependent_allowance, fixed_overtime: row.fixed_overtime,
-        overtime_pay: row.overtime_pay, adjustment_allowance: row.adjustment_allowance,
-        absence_deduction: row.absence_deduction,
-        hourly_weekday_minutes: row.hourly_weekday_minutes, hourly_saturday_minutes: row.hourly_saturday_minutes,
-        hourly_sunday_minutes: row.hourly_sunday_minutes,
-        hourly_rate_weekday: row.hourly_rate_weekday || 0, hourly_rate_saturday: row.hourly_rate_saturday || 0,
-        hourly_rate_sunday: row.hourly_rate_sunday || 0,
-      });
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
-  }, [employeeId, yearMonth]);
-
-  useEffect(() => { if (employeeId && yearMonth) loadData(); }, [loadData]);
-
-  const calcGross = (): number => {
-    if (!data) return 0;
-    const pt = data.employment_type === "パート";
-    if (pt) {
-      const base = Math.round(((editData.hourly_weekday_minutes||0)/60)*(editData.hourly_rate_weekday||0)
-        +((editData.hourly_saturday_minutes||0)/60)*(editData.hourly_rate_saturday||0)
-        +((editData.hourly_sunday_minutes||0)/60)*(editData.hourly_rate_sunday||0));
-      return base + (editData.commute_allowance||0) + (editData.adjustment_allowance||0);
-    }
-    return (editData.base_salary||0)+(editData.position_allowance||0)+(editData.qualification_allowance||0)
-      +(editData.commute_allowance||0)+(editData.dependent_allowance||0)+(editData.fixed_overtime||0)
-      +(editData.overtime_pay||0)+(editData.adjustment_allowance||0)-(editData.absence_deduction||0);
-  };
-
-  const handleSave = async () => {
-    if (!data) return;
-    setSaving(true); setError(null); setSuccess(false);
-    try {
-      const gross = calcGross();
-      const pt = data.employment_type === "パート";
-      const uf: any = { adjustment_allowance: editData.adjustment_allowance||0, total_payment: gross, calculated_at: new Date().toISOString() };
-      if (pt) {
-        uf.hourly_weekday_minutes = editData.hourly_weekday_minutes||0;
-        uf.hourly_saturday_minutes = editData.hourly_saturday_minutes||0;
-        uf.hourly_sunday_minutes = editData.hourly_sunday_minutes||0;
-        uf.base_salary = Math.round(((editData.hourly_weekday_minutes||0)/60)*(editData.hourly_rate_weekday||0)
-          +((editData.hourly_saturday_minutes||0)/60)*(editData.hourly_rate_saturday||0)
-          +((editData.hourly_sunday_minutes||0)/60)*(editData.hourly_rate_sunday||0));
-        uf.commute_allowance = editData.commute_allowance||0;
-      } else {
-        uf.base_salary=editData.base_salary||0; uf.position_allowance=editData.position_allowance||0;
-        uf.qualification_allowance=editData.qualification_allowance||0; uf.commute_allowance=editData.commute_allowance||0;
-        uf.dependent_allowance=editData.dependent_allowance||0; uf.fixed_overtime=editData.fixed_overtime||0;
-        uf.overtime_pay=editData.overtime_pay||0; uf.absence_deduction=editData.absence_deduction||0;
-      }
-      const { error: ue } = await supabase.from("payroll_monthly").update(uf).eq("id", data.id);
-      if (ue) throw ue;
-      setSuccess(true); await loadData();
-    } catch (e: any) { setError(e.message); }
-    finally { setSaving(false); }
-  };
-
-  const onChange = (f: string, v: string) => setEditData(p => ({ ...p, [f]: parseInt(v)||0 }));
-
-  if (loading) return <p style={{ fontSize: 13, color: "#888" }}>読み込み中...</p>;
-  if (!data) return <p style={{ fontSize: 13 }}>データが見つかりません</p>;
-
-  const pt = data.employment_type === "パート";
-  const gross = calcGross();
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <button onClick={onBack} style={{ padding: "6px 14px", backgroundColor: "#6c757d", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>← 一覧に戻る</button>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>{data.employees?.employee_code} {data.employees?.full_name}</span>
-        <span style={{ fontSize: 12, color: "#666" }}>{yearMonth.replace("-","年")}月</span>
-      </div>
-
-      {error && <div style={{ padding: 10, marginBottom: 12, backgroundColor: "#f8d7da", borderRadius: 6, color: "#721c24", fontSize: 12 }}>{error}</div>}
-      {success && <div style={{ padding: 10, marginBottom: 12, backgroundColor: "#d4edda", borderRadius: 6, color: "#155724", fontSize: 12 }}>保存しました</div>}
-
-      {/* 基本情報 */}
-      <Sec title="基本情報">
-        <Info label="区分" value={data.employment_type} />
-        <Info label="対象期間" value={`${data.period_start} 〜 ${data.period_end}`} />
-        <Info label="出勤日数" value={`${data.work_days}日`} />
-        <Info label="総労働時間" value={formatMinutes(data.actual_work_minutes)} />
-        {!pt && <>
-          <Info label="残業時間" value={formatMinutes(data.overtime_minutes)} />
-          <Info label="欠勤日数" value={`${data.absence_days}日`} />
-          <Info label="残業単価" value={`¥${Math.round(data.overtime_unit_price||0).toLocaleString()}/h`} />
-        </>}
-      </Sec>
-
-      {pt && (
-        <Sec title="曜日別労働時間・時給">
-          <MinRow label="平日" mf="hourly_weekday_minutes" rf="hourly_rate_weekday" ed={editData} oc={onChange} />
-          <MinRow label="土曜" mf="hourly_saturday_minutes" rf="hourly_rate_saturday" ed={editData} oc={onChange} />
-          <MinRow label="日曜" mf="hourly_sunday_minutes" rf="hourly_rate_sunday" ed={editData} oc={onChange} />
-          <div style={{ borderTop: "2px solid #333", marginTop: 6, paddingTop: 6 }}>
-            <Info label="基本給与（合計）" value={`¥${Math.round(((editData.hourly_weekday_minutes||0)/60)*(editData.hourly_rate_weekday||0)+((editData.hourly_saturday_minutes||0)/60)*(editData.hourly_rate_saturday||0)+((editData.hourly_sunday_minutes||0)/60)*(editData.hourly_rate_sunday||0)).toLocaleString()}`} bold />
-          </div>
-        </Sec>
-      )}
-
-      <Sec title="支給項目">
-        {!pt ? <>
-          <ERow label="基本給" f="base_salary" ed={editData} oc={onChange} />
-          <ERow label="役職手当" f="position_allowance" ed={editData} oc={onChange} />
-          <ERow label="資格手当" f="qualification_allowance" ed={editData} oc={onChange} />
-          <ERow label="通勤手当" f="commute_allowance" ed={editData} oc={onChange} />
-          <ERow label="扶養手当" f="dependent_allowance" ed={editData} oc={onChange} />
-          <ERow label="固定残業手当" f="fixed_overtime" ed={editData} oc={onChange} />
-          <ERow label="超過残業手当" f="overtime_pay" ed={editData} oc={onChange} />
-        </> : <ERow label="通勤手当" f="commute_allowance" ed={editData} oc={onChange} />}
-        <ERow label="調整手当" f="adjustment_allowance" ed={editData} oc={onChange} hl />
-      </Sec>
-
-      {!pt && <Sec title="控除項目"><ERow label="欠勤控除" f="absence_deduction" ed={editData} oc={onChange} /></Sec>}
-
-      <div style={{ padding: 14, marginTop: 20, backgroundColor: "#e8f4fd", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>支給合計</span>
-        <span style={{ fontSize: 22, fontWeight: 700, color: T.primary }}>¥{gross.toLocaleString()}</span>
-      </div>
-
-      <div style={{ marginTop: 20 }}>
-        <button onClick={handleSave} disabled={saving} style={{ padding: "10px 28px", backgroundColor: saving ? "#ccc" : T.primary, color: "#fff", border: "none", borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}>
-          {saving ? "保存中..." : "保存"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ── ヘルパー ── */
-function Sec({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div style={{ marginTop: 20 }}><h3 style={{ fontSize: 14, fontWeight: 700, paddingBottom: 6, borderBottom: `2px solid ${T.primary}`, marginBottom: 10 }}>{title}</h3>{children}</div>;
-}
-function Info({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
-  return <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid #eee", fontWeight: bold ? 700 : 400, fontSize: 13 }}><span style={{ color: "#555" }}>{label}</span><span>{value}</span></div>;
-}
-function ERow({ label, f, ed, oc, hl }: { label: string; f: string; ed: Record<string,number>; oc: (f:string,v:string)=>void; hl?: boolean }) {
-  return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #eee", backgroundColor: hl ? "#fffbeb" : "transparent" }}>
-    <span style={{ color: "#555", fontSize: 13 }}>{label}</span>
-    <div style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ fontSize: 13 }}>¥</span>
-      <input type="number" value={ed[f]||0} onChange={e=>oc(f,e.target.value)} style={{ width: 110, padding: "3px 6px", border: "1px solid #ccc", borderRadius: 4, textAlign: "right", fontSize: 13 }} />
-    </div>
-  </div>;
-}
-function MinRow({ label, mf, rf, ed, oc }: { label: string; mf: string; rf: string; ed: Record<string,number>; oc: (f:string,v:string)=>void }) {
-  const mins = ed[mf]||0, rate = ed[rf]||0;
-  return <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 1fr 90px", gap: 6, alignItems: "center", padding: "5px 0", borderBottom: "1px solid #eee", fontSize: 13 }}>
-    <span style={{ color: "#555", fontWeight: 700 }}>{label}</span>
-    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-      <input type="number" value={mins} onChange={e=>oc(mf,e.target.value)} style={{ width: 70, padding: "3px 6px", border: "1px solid #ccc", borderRadius: 4, textAlign: "right" }} />
-      <span style={{ fontSize: 11, color: "#888" }}>分</span>
-    </div>
-    <div style={{ display: "flex", alignItems: "center", gap: 3 }}><span>×¥</span>
-      <input type="number" value={rate} onChange={e=>oc(rf,e.target.value)} style={{ width: 70, padding: "3px 6px", border: "1px solid #ccc", borderRadius: 4, textAlign: "right" }} />
-    </div>
-    <span style={{ textAlign: "right", fontWeight: 700 }}>¥{Math.round((mins/60)*rate).toLocaleString()}</span>
-  </div>;
 }

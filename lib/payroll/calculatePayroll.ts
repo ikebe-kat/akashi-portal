@@ -14,6 +14,7 @@ const AKASHI_COMPANY_ID = 'e85e40ac-71f7-4918-b2fc-36d877337b74';
 const OVERTIME_THRESHOLD_MINUTES = 480; // 日次8時間 = 480分
 const AVERAGE_WORK_DAYS = 19.66;        // 日割計算用
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数
+const EXCLUDE_CODES = ['D02', 'D18', 'D49', 'D67']; // KAT WORLD側で給与処理
 
 // ============================================
 // メイン: 全従業員の給与計算
@@ -36,6 +37,9 @@ export async function calculateAll(params: PayrollCalcParams): Promise<PayrollRe
   const results: PayrollResult[] = [];
 
   for (const emp of employees) {
+    // KAT WORLD側で給与処理する本部メンバーはスキップ
+    if (EXCLUDE_CODES.includes(emp.employee_code)) continue;
+
     if (!emp.requires_punch) {
       results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
       continue;
