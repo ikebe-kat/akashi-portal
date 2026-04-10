@@ -440,18 +440,33 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     if (!modalDay) return;
     setSaving(true);
     const shiftType = empShiftType === "off" ? "shift_off" : "shift_work";
-    const { error } = await supabase.from("leave_requests").insert({
+    const reasonText = empShiftType === "off" ? "公休（全日）" : "出勤日登録";
+    const dow = DOW[new Date(modalDay.dateStr + "T00:00:00").getDay()];
+
+    // leave_requestsに登録
+    const { error: lrErr } = await supabase.from("leave_requests").insert({
       company_id: employee.company_id,
       employee_id: employee.id,
       store_id: employee.store_id,
       attendance_date: modalDay.dateStr,
       type: shiftType,
       status: "approved",
-      reason: empShiftType === "off" ? "公休（全日）" : "出勤日登録",
+      reason: reasonText,
     });
+    if (lrErr) { setSaving(false); showAlert("登録に失敗しました: " + lrErr.message); return; }
+
+    // attendance_dailyにもupsert（出勤簿・カレンダーに表示するため）
+    await supabase.from("attendance_daily").upsert({
+      company_id: employee.company_id,
+      employee_id: employee.id,
+      attendance_date: modalDay.dateStr,
+      day_of_week: dow,
+      reason: reasonText,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "employee_id,attendance_date" });
+
     setSaving(false);
-    if (!error) { setModalDay(null); loadData(); }
-    else { showAlert("登録に失敗しました: " + error.message); }
+    setModalDay(null); loadData();
   };
 
   const cancelShift = async () => {
@@ -460,10 +475,18 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     const req = shiftReqs.find((r: any) => r.attendance_date === modalDay.dateStr && r.type === shiftType);
     if (!req) return;
     setSaving(true);
+
+    // leave_requestsから削除
     const { error } = await supabase.from("leave_requests").delete().eq("id", req.id);
+    if (error) { setSaving(false); showAlert("取消に失敗しました: " + error.message); return; }
+
+    // attendance_dailyのreasonもクリア
+    await supabase.from("attendance_daily")
+      .update({ reason: null, updated_at: new Date().toISOString() })
+      .eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr);
+
     setSaving(false);
-    if (!error) { setModalDay(null); loadData(); }
-    else { showAlert("取消に失敗しました: " + error.message); }
+    setModalDay(null); loadData();
   };
 
   const hasShiftReq = (dateStr: string) => {
