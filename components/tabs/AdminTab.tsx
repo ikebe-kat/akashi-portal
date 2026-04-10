@@ -1290,7 +1290,7 @@ const MAIN_MENU: MainMenuItem[] = [
   { id: "daily", label: "日次一覧", directTab: "daily" },
   { id: "monthly", label: "月次サマリ", directTab: "monthly" },
   { id: "settings", label: "設定", directTab: "settings" },
-  { id: "g_payroll", label: "給与処理", subTabs: ["sharoushi", "payroll"] },
+  { id: "g_payroll", label: "給与処理", subTabs: ["payroll", "sharoushi"] },
   { id: "g_info", label: "情報管理", subTabs: ["requests", "documents", "employee_manage"] },
 ];
 
