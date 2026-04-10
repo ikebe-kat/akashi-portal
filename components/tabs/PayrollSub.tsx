@@ -100,23 +100,26 @@ export default function PayrollSub({ employee }: { employee: any }) {
     setLoading(true); setError(null); setSuccess(null);
     try {
       const { data, error: fe } = await supabase.from("payroll_monthly")
-        .select("*, employees (employee_code, full_name, employment_type, store_id, stores (store_name))")
+        .select("*, employees (employee_code, full_name, employment_type, store_id, stores (store_name), employee_payroll_config (hourly_wage_weekday, hourly_wage_saturday, hourly_wage_sunday))")
         .eq("company_id", AKASHI_COMPANY_ID)
         .eq("target_year", parseInt(yearMonth.split("-")[0]))
         .eq("target_month", parseInt(yearMonth.split("-")[1]))
         .order("employee_id");
       if (fe) throw fe;
       // flatten & sort by employee_code
-      const mapped = (data || []).map((r: any) => ({
-        ...r,
-        employee_code: r.employees?.employee_code || "",
-        full_name: r.employees?.full_name || "",
-        employment_type: r.employees?.employment_type || "",
-        store_name: r.employees?.stores?.store_name || "",
-        hourly_rate_weekday: r.hourly_rate_weekday || 0,
-        hourly_rate_saturday: r.hourly_rate_saturday || 0,
-        hourly_rate_sunday: r.hourly_rate_sunday || 0,
-      }));
+      const mapped = (data || []).map((r: any) => {
+        const cfg = r.employees?.employee_payroll_config?.[0] || {};
+        return {
+          ...r,
+          employee_code: r.employees?.employee_code || "",
+          full_name: r.employees?.full_name || "",
+          employment_type: r.employees?.employment_type || "",
+          store_name: r.employees?.stores?.store_name || "",
+          hourly_rate_weekday: cfg.hourly_wage_weekday || 0,
+          hourly_rate_saturday: cfg.hourly_wage_saturday || 0,
+          hourly_rate_sunday: cfg.hourly_wage_sunday || 0,
+        };
+      });
       mapped.sort((a: any, b: any) => a.employee_code.localeCompare(b.employee_code));
       setRows(mapped);
     } catch (e: any) { setError(e.message); }
