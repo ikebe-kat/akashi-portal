@@ -140,8 +140,19 @@ export default function PayrollSub({ employee }: { employee: any }) {
     finally { setCalculating(false); }
   };
 
+  const FIELD_LIMITS: Record<string, [number, number]> = {
+    base_salary: [0, 999999], position_allowance: [0, 999999], qualification_allowance: [0, 999999],
+    commute_allowance: [0, 99999], dependent_allowance: [0, 999999],
+    fixed_overtime: [0, 999999], overtime_pay: [0, 999999],
+    adjustment_allowance: [-999999, 999999], absence_deduction: [0, 999999],
+    hourly_weekday_minutes: [0, 9999], hourly_saturday_minutes: [0, 9999], hourly_sunday_minutes: [0, 9999],
+    hourly_rate_weekday: [0, 9999], hourly_rate_saturday: [0, 9999], hourly_rate_sunday: [0, 9999],
+  };
+
   const handleCellChange = (idx: number, key: string, value: string) => {
-    const num = parseInt(value) || 0;
+    let num = parseInt(value) || 0;
+    const limits = FIELD_LIMITS[key];
+    if (limits) num = Math.max(limits[0], Math.min(limits[1], num));
     setRows(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [key]: num };
