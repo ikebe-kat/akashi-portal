@@ -15,6 +15,7 @@ interface TodayRecord {
   punch_in: string | null
   punch_out: string | null
   reason: string | null
+  break_minutes_self_reported: number | null
 }
 
 interface DialogState {
@@ -45,15 +46,41 @@ function toLocalISO(date: Date): string {
   return `${y}-${mo}-${d}T${h}:${mi}:${s}+09:00`
 }
 
-function roundPunchIn(d: Date): string {
+function roundPunchIn(d: Date, employmentType: string | null | undefined): string {
   const h = d.getHours()
   const m = d.getMinutes()
-  if (h < 9 || (h === 9 && m < 30)) return '09:30'
+
+  if (employmentType === 'パート') {
+    // パート：始業は次の15分に繰り下げ（ジャストはそのまま）
+    const totalMin = h * 60 + m
+    const remainder = totalMin % 15
+    const rounded = remainder === 0 ? totalMin : totalMin + (15 - remainder)
+    const rh = Math.floor(rounded / 60)
+    const rm = rounded % 60
+    return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`
+  }
+
+  // 正社員（パート以外すべて）：9:00より前は9:00、9:00以降はそのまま
+  if (h < 9) return '09:00'
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
-function roundPunchOut(d: Date): string {
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+function roundPunchOut(d: Date, employmentType: string | null | undefined): string {
+  const h = d.getHours()
+  const m = d.getMinutes()
+
+  if (employmentType === 'パート') {
+    // パート：終業は前の15分に繰り上げ（ジャストはそのまま）
+    const totalMin = h * 60 + m
+    const remainder = totalMin % 15
+    const rounded = totalMin - remainder
+    const rh = Math.floor(rounded / 60)
+    const rm = rounded % 60
+    return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`
+  }
+
+  // 正社員（パート以外すべて）：1分単位そのまま
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
 function getPunchStatus(record: TodayRecord | null): PunchStatus {
@@ -180,7 +207,7 @@ export default function PunchTab({ employee }: { employee: any }) {
 
     const { data, error } = await supabase
       .from('attendance_daily')
-      .select('id, punch_in, punch_out, reason')
+      .select('id, punch_in, punch_out, reason, break_minutes_self_reported')
       .eq('employee_id', employeeId)
       .eq('attendance_date', today)
       .maybeSingle()
@@ -200,6 +227,7 @@ export default function PunchTab({ employee }: { employee: any }) {
             punch_in: data.punch_in ? data.punch_in.slice(0, 5) : null,
             punch_out: data.punch_out ? data.punch_out.slice(0, 5) : null,
             reason: data.reason ?? null,
+            break_minutes_self_reported: data.break_minutes_self_reported ?? null,
           }
         : null
     )
@@ -209,13 +237,24 @@ export default function PunchTab({ employee }: { employee: any }) {
 
   const handlePunch = async (type: 'in' | 'out') => {
     if (!employee) return
+
+    if (type === 'out' &&
+        employee.employment_type === 'パート' &&
+        employee.company_id === 'e85e40ac-71f7-4918-b2fc-36d877337b74') {
+      if (todayRecord?.break_minutes_self_reported === null ||
+          todayRecord?.break_minutes_self_reported === undefined) {
+        alert('休憩を選択してください');
+        return;
+      }
+    }
+
     setPunching(true)
     setMessage(null)
 
     const d = new Date()
     const today = toDateStr(d)
     const rawTimestamp = toLocalISO(d)
-    const rounded = type === 'in' ? roundPunchIn(d) : roundPunchOut(d)
+    const rounded = type === 'in' ? roundPunchIn(d, employee.employment_type) : roundPunchOut(d, employee.employment_type)
 
     try {
       if (type === 'in') {
@@ -237,12 +276,13 @@ export default function PunchTab({ employee }: { employee: any }) {
               punch_in_raw: rawTimestamp,
               punch_in: rounded,
               break_minutes: 60,
+              break_minutes_self_reported: null,
             })
-            .select('id, punch_in, punch_out, reason')
+            .select('id, punch_in, punch_out, reason, break_minutes_self_reported')
             .maybeSingle()
           if (error) throw error
           if (!rec) throw new Error('insert succeeded but no data returned')
-          setTodayRecord({ id: rec.id, punch_in: rounded, punch_out: null, reason: null })
+          setTodayRecord({ id: rec.id, punch_in: rounded, punch_out: null, reason: null, break_minutes_self_reported: null })
           setMessage({ text: `出勤打刻しました　${rounded}`, ok: true })
           setPunching(false)
           return
@@ -267,11 +307,11 @@ export default function PunchTab({ employee }: { employee: any }) {
               punch_out: rounded,
               break_minutes: 60,
             })
-            .select('id, punch_in, punch_out, reason')
+            .select('id, punch_in, punch_out, reason, break_minutes_self_reported')
             .maybeSingle()
           if (error) throw error
           if (!rec) throw new Error('insert succeeded but no data returned')
-          setTodayRecord({ id: rec.id, punch_in: null, punch_out: rounded, reason: null })
+          setTodayRecord({ id: rec.id, punch_in: null, punch_out: rounded, reason: null, break_minutes_self_reported: todayRecord?.break_minutes_self_reported ?? null })
           setMessage({ text: `退勤打刻しました　${rounded}`, ok: true })
           setPunching(false)
           return
@@ -286,6 +326,22 @@ export default function PunchTab({ employee }: { employee: any }) {
       setPunching(false)
     }
   }
+
+  const handleBreakSelect = async (minutes: number) => {
+    if (!todayRecord?.id) {
+      alert('先に出勤打刻をしてください');
+      return;
+    }
+    const { error } = await supabase
+      .from('attendance_daily')
+      .update({ break_minutes_self_reported: minutes })
+      .eq('id', todayRecord.id);
+    if (error) {
+      alert('休憩の更新に失敗しました: ' + error.message);
+      return;
+    }
+    setTodayRecord({ ...todayRecord, break_minutes_self_reported: minutes });
+  };
 
   // ─── モーダル開く ─────────────────────────────────────────────────────────
 
@@ -510,6 +566,28 @@ export default function PunchTab({ employee }: { employee: any }) {
         >
           <span style={{ fontSize: 14 }}>▲</span>{punching ? '...' : '出勤'}
         </button>
+
+        {/* パート休憩申告ボタン（ダイハツ明石西パート・出勤済み時のみ） */}
+        {employee.employment_type === 'パート' &&
+         employee.company_id === 'e85e40ac-71f7-4918-b2fc-36d877337b74' &&
+         status === 'in' && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '0 4px' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: T.textSec }}>休憩</span>
+            {todayRecord?.break_minutes_self_reported === null || todayRecord?.break_minutes_self_reported === undefined ? (
+              <span style={{ fontSize: 10, color: '#DC2626', fontWeight: 600 }}>※選択してください</span>
+            ) : null}
+            {[{ label: 'なし', value: 0 }, { label: '30分', value: 30 }, { label: '45分', value: 45 }, { label: '60分', value: 60 }].map(opt => (
+              <button key={opt.value} onClick={() => handleBreakSelect(opt.value)} style={{
+                width: 52, padding: '6px 0', borderRadius: '4px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                border: todayRecord?.break_minutes_self_reported === opt.value ? 'none' : `1px solid ${T.border}`,
+                backgroundColor: todayRecord?.break_minutes_self_reported === opt.value ? T.primary : '#fff',
+                color: todayRecord?.break_minutes_self_reported === opt.value ? '#fff' : T.textMuted,
+                transition: 'all 0.15s',
+              }}>{opt.label}</button>
+            ))}
+          </div>
+        )}
+
         <button
           onClick={() => handlePunch('out')}
           disabled={status !== 'in' || punching}

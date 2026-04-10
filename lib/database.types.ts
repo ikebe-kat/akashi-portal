@@ -72,6 +72,7 @@ export type Database = {
           diff_minutes:           number | null;
           employee_note:          string | null;
           admin_note:             string | null;
+          break_minutes_self_reported: number | null;
           created_at:             string;
           updated_at:             string;
         };
