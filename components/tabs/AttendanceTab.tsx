@@ -439,7 +439,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     if (!modalDay) return;
     setSaving(true);
     const shiftType = empShiftType === "off" ? "shift_off" : "shift_work";
-    const reasonText = empShiftType === "off" ? "公休（全日）" : "出勤日登録";
+    const sn = employee.full_name?.split(" ")[0] ?? employee.full_name;
+    const reasonText = empShiftType === "off" ? `${sn} 公休` : `${sn} 出勤`;
     const dow = DOW[new Date(modalDay.dateStr + "T00:00:00").getDay()];
 
     // leave_requestsに登録
