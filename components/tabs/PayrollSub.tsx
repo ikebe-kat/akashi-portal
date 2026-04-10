@@ -287,7 +287,9 @@ export default function PayrollSub({ employee }: { employee: any }) {
   );
 }
 
-/* ── Excel風テーブル ── */
+/* ── Excel風テーブル（コード・氏名列 左固定） ── */
+const STICKY_KEYS = ["employee_code", "full_name"];
+
 function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChange, total }: {
   cols: { key: string; label: string; editable: boolean; width: number }[];
   data: any[]; allRows: any[];
@@ -302,13 +304,33 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
     return val != null ? `¥${Number(val).toLocaleString()}` : "¥0";
   };
 
+  // sticky列のleft位置を計算
+  const stickyLeft: Record<string, number> = {};
+  let leftAccum = 0;
+  for (const c of cols) {
+    if (STICKY_KEYS.includes(c.key)) {
+      stickyLeft[c.key] = leftAccum;
+      leftAccum += c.width;
+    }
+  }
+
+  const stickyStyle = (key: string, bg: string): React.CSSProperties =>
+    STICKY_KEYS.includes(key) ? { position: "sticky", left: stickyLeft[key], zIndex: 20, backgroundColor: bg, boxShadow: key === "full_name" ? "2px 0 4px rgba(0,0,0,0.06)" : undefined } : {};
+
   return (
     <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 6 }}>
       <table style={{ borderCollapse: "collapse", fontSize: 12, whiteSpace: "nowrap", minWidth: cols.reduce((s, c) => s + c.width, 0) }}>
         <thead>
           <tr>
             {cols.map(c => (
-              <th key={c.key} style={{ padding: "8px 6px", backgroundColor: "#f1f3f5", borderBottom: "2px solid #dee2e6", borderRight: "1px solid #eee", fontWeight: 700, fontSize: 11, textAlign: c.key === "employee_code" || c.key === "full_name" ? "left" : "right", position: "sticky", top: 0, zIndex: 10, width: c.width, minWidth: c.width }}>{c.label}</th>
+              <th key={c.key} style={{
+                padding: "8px 6px", backgroundColor: "#f1f3f5", borderBottom: "2px solid #dee2e6",
+                borderRight: "1px solid #eee", fontWeight: 700, fontSize: 11,
+                textAlign: STICKY_KEYS.includes(c.key) ? "left" : "right",
+                position: "sticky", top: 0, zIndex: STICKY_KEYS.includes(c.key) ? 30 : 10,
+                width: c.width, minWidth: c.width,
+                ...stickyStyle(c.key, "#f1f3f5"),
+              }}>{c.label}</th>
             ))}
           </tr>
         </thead>
@@ -320,13 +342,14 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
                 {cols.map(c => {
                   const cellId = `${globalIdx}-${c.key}`;
                   const isEditing = editingCell === cellId;
-                  const isRight = c.key !== "employee_code" && c.key !== "full_name";
+                  const isRight = !STICKY_KEYS.includes(c.key);
                   const isTotal = c.key === "total_payment";
                   const val = row[c.key];
+                  const baseBg = c.editable ? "#fafbfc" : "#fff";
 
                   if (isEditing && c.editable) {
                     return (
-                      <td key={c.key} style={{ padding: 0, borderRight: "1px solid #eee" }}>
+                      <td key={c.key} style={{ padding: 0, borderRight: "1px solid #eee", ...stickyStyle(c.key, "#fffde7") }}>
                         <input autoFocus type="number" value={val || 0}
                           onChange={e => onChange(globalIdx, c.key, e.target.value)}
                           onBlur={() => setEditingCell(null)}
@@ -346,7 +369,8 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
                         cursor: c.editable ? "pointer" : "default",
                         fontWeight: isTotal ? 700 : 400,
                         color: isTotal ? T.primary : c.key === "absence_deduction" && val > 0 ? "#dc3545" : T.text,
-                        backgroundColor: c.editable ? "#fafbfc" : "transparent",
+                        backgroundColor: baseBg,
+                        ...stickyStyle(c.key, baseBg),
                       }}>
                       {fmtVal(c.key, val)}
                     </td>
@@ -358,8 +382,12 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
         </tbody>
         <tfoot>
           <tr style={{ backgroundColor: "#e9ecef", fontWeight: 700 }}>
-            <td style={{ padding: "8px 6px", borderRight: "1px solid #eee" }} colSpan={cols.length - 1}>合計</td>
-            <td style={{ padding: "8px 6px", textAlign: "right", color: T.primary, fontSize: 13 }}>¥{total.toLocaleString()}</td>
+            {cols.map((c, ci) => {
+              if (ci === 0) return <td key={c.key} style={{ padding: "8px 6px", borderRight: "1px solid #eee", ...stickyStyle(c.key, "#e9ecef") }}>合計</td>;
+              if (ci === 1) return <td key={c.key} style={{ padding: "8px 6px", borderRight: "1px solid #eee", ...stickyStyle(c.key, "#e9ecef") }}></td>;
+              if (ci === cols.length - 1) return <td key={c.key} style={{ padding: "8px 6px", textAlign: "right", color: T.primary, fontSize: 13, borderRight: "1px solid #eee" }}>¥{total.toLocaleString()}</td>;
+              return <td key={c.key} style={{ padding: "8px 6px", borderRight: "1px solid #eee" }}></td>;
+            })}
           </tr>
         </tfoot>
       </table>
