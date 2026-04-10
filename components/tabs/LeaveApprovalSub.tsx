@@ -64,20 +64,29 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
+  // 権限フィルタ: DA001→魚住店のみ、DA002→大久保店のみ、HONBU→全件
+  const permFiltered = useMemo(() => {
+    const myCode = employee?.employee_code || "";
+    if (HONBU_CODES.includes(myCode)) return requests;
+    if (myCode === "DA001") return requests.filter(r => (r.store_name || "").includes("魚住"));
+    if (myCode === "DA002") return requests.filter(r => (r.store_name || "").includes("大久保"));
+    return requests;
+  }, [requests, employee?.employee_code]);
+
   const filtered = useMemo(() => {
-    if (filter === "全件") return requests;
-    return requests.filter(r => r.status === filter);
-  }, [requests, filter]);
+    if (filter === "全件") return permFiltered;
+    return permFiltered.filter(r => r.status === filter);
+  }, [permFiltered, filter]);
 
   const counts = useMemo(() => {
     let pending = 0, approved = 0, rejected = 0;
-    requests.forEach(r => {
+    permFiltered.forEach(r => {
       if (r.status === "申請中") pending++;
       else if (r.status === "承認") approved++;
       else if (r.status === "却下") rejected++;
     });
-    return { pending, approved, rejected, total: requests.length };
-  }, [requests]);
+    return { pending, approved, rejected, total: permFiltered.length };
+  }, [permFiltered]);
 
   const handleApprove = async (req: LeaveReq) => {
     setProcessing(req.id);
@@ -94,6 +103,23 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
       reason: req.reason, updated_at: new Date().toISOString(),
     }, { onConflict: "employee_id,attendance_date" });
     if (attErr) { setProcessing(null); setDialog({ message: "出勤簿への登録に失敗しました: " + attErr.message, mode: "alert", onOk: () => setDialog(null) }); return; }
+
+    // 有給残から消費（FIFO: 期限が近い付与分から先に消費）
+    const yukyuDays = req.reason?.includes("有給（全日）") ? 1 : req.reason?.includes("午前有給") || req.reason?.includes("午後有給") ? 0.5 : 0;
+    if (yukyuDays > 0) {
+      const { data: grants } = await supabase.from("paid_leave_grants")
+        .select("id, remaining_days").eq("employee_id", req.employee_id)
+        .gt("remaining_days", 0).order("expiry_date", { ascending: true });
+      let remaining = yukyuDays;
+      for (const g of (grants || [])) {
+        if (remaining <= 0) break;
+        const consume = Math.min(remaining, Number(g.remaining_days));
+        await supabase.from("paid_leave_grants").update({
+          remaining_days: Number(g.remaining_days) - consume,
+        }).eq("id", g.id);
+        remaining -= consume;
+      }
+    }
 
     fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
       method: "POST", headers: { "Content-Type": "application/json" },
