@@ -266,6 +266,10 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
       const utcH = parseInt(hh) - 9;
       return `${dateStr}T${String(utcH < 0 ? utcH + 24 : utcH).padStart(2,"0")}:${mm}:00+00`;
     };
+    if (punchIn && punchOut && punchOut <= punchIn) {
+      alert("退勤時刻が出勤時刻より前です");
+      return;
+    }
     onSave({
       punch_in: punchIn || null,
       punch_out: punchOut || null,

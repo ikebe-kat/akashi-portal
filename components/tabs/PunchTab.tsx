@@ -256,6 +256,15 @@ export default function PunchTab({ employee }: { employee: any }) {
     const rawTimestamp = toLocalISO(d)
     const rounded = type === 'in' ? roundPunchIn(d, employee.employment_type) : roundPunchOut(d, employee.employment_type)
 
+    // 退勤時: 出勤時刻より前ならエラー
+    if (type === 'out' && todayRecord?.punch_in) {
+      if (rounded <= todayRecord.punch_in) {
+        setPunching(false)
+        setMessage({ text: '退勤時刻が出勤時刻より前です', ok: false })
+        return
+      }
+    }
+
     try {
       if (type === 'in') {
         if (todayRecord?.id) {
