@@ -11,6 +11,7 @@ import SharoushiSub from "@/components/tabs/SharoushiSub";
 import EmployeeManageSub from "@/components/tabs/EmployeeManageSub";
 import SettingsSub from "@/components/tabs/SettingsSub";
 import LeaveApprovalSub from "@/components/tabs/LeaveApprovalSub";
+import PayrollSub from "@/components/tabs/PayrollSub";
 
 interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
@@ -1293,7 +1294,7 @@ const MAIN_MENU: MainMenuItem[] = [
   { id: "g_info", label: "情報管理", subTabs: ["requests", "documents", "employee_manage"] },
 ];
 
-const TwoRowMenu = ({ visibleTabs, sub, setSub, onPayroll }: { visibleTabs: { id: SubTab; label: string }[]; sub: SubTab; setSub: (s: SubTab) => void; onPayroll: () => void }) => {
+const TwoRowMenu = ({ visibleTabs, sub, setSub }: { visibleTabs: { id: SubTab; label: string }[]; sub: SubTab; setSub: (s: SubTab) => void }) => {
   const visibleIds = new Set(visibleTabs.map(t => t.id));
   const labelMap = Object.fromEntries(visibleTabs.map(t => [t.id, t.label]));
 
@@ -1316,10 +1317,7 @@ const TwoRowMenu = ({ visibleTabs, sub, setSub, onPayroll }: { visibleTabs: { id
       setSub(m.directTab);
     } else if (m.subTabs) {
       const firstVisible = m.subTabs.find(id => visibleIds.has(id));
-      if (firstVisible) {
-        if (firstVisible === "payroll") onPayroll();
-        else setSub(firstVisible);
-      }
+      if (firstVisible) setSub(firstVisible);
     }
   };
 
@@ -1337,7 +1335,7 @@ const TwoRowMenu = ({ visibleTabs, sub, setSub, onPayroll }: { visibleTabs: { id
         {visibleMain.map(m => {
           const isActive = activeMain === m.id;
           return (
-            <button key={m.id} onClick={() => handleMainClick(m)} style={{ padding: "10px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? T.primary : T.textSec, borderBottom: isActive ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{m.label}</button>
+            <button key={m.id} onClick={() => handleMainClick(m)} style={{ padding: "10px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? T.primary : T.textSec, borderBottom: isActive ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{m.label}{m.subTabs ? " ▾" : ""}</button>
           );
         })}
       </div>
@@ -1345,7 +1343,7 @@ const TwoRowMenu = ({ visibleTabs, sub, setSub, onPayroll }: { visibleTabs: { id
       {currentSubTabs.length > 0 && (
         <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
           {currentSubTabs.map(id => (
-            <button key={id} onClick={() => { if (id === "payroll") onPayroll(); else setSub(id); }} style={{
+            <button key={id} onClick={() => setSub(id)} style={{
               padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: sub === id ? 700 : 400,
               cursor: "pointer", border: sub === id ? `2px solid ${T.primary}` : `1px solid ${T.border}`,
               backgroundColor: sub === id ? T.primary + "15" : "#fff",
@@ -1374,12 +1372,10 @@ export default function AdminTab({ employee }: { employee: any }) {
   const defaultTab = isOwner ? "notifications" : "individual";
   const [sub, setSub] = useState<SubTab>(defaultTab);
 
-  const handlePayroll = () => { window.location.href = "/payroll"; };
-
   return (
     <div style={{ padding: "16px 12px", maxWidth: 960, margin: "0 auto" }}>
       {isHonbu ? (
-        <TwoRowMenu visibleTabs={visibleTabs} sub={sub} setSub={setSub} onPayroll={handlePayroll} />
+        <TwoRowMenu visibleTabs={visibleTabs} sub={sub} setSub={setSub} />
       ) : (
         <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
           {visibleTabs.filter(t => t.id !== "payroll").map(t => (<button key={t.id} onClick={() => setSub(t.id)} style={{ padding: "10px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: sub === t.id ? 700 : 400, color: sub === t.id ? T.primary : T.textSec, borderBottom: sub === t.id ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{t.label}</button>))}
@@ -1396,6 +1392,7 @@ export default function AdminTab({ employee }: { employee: any }) {
       {sub === "documents" && <DocumentsSub employee={employee} />}
       {sub === "employee_manage" && <EmployeeManageSub employee={employee} />}
       {sub === "settings" && <SettingsSub employee={employee} />}
+      {sub === "payroll" && <PayrollSub employee={employee} />}
     </div>
   );
 }
