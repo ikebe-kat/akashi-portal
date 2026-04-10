@@ -15,7 +15,7 @@ import LeaveApprovalSub from "@/components/tabs/LeaveApprovalSub";
 interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
 
-type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "settings";
+type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "settings" | "payroll";
 const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "super_only" | "all" }[] = [
   { id: "notifications", label: "お知らせ", visibleTo: "owner_or_kondo" },
   { id: "paidleave", label: "有給管理", visibleTo: "owner_or_kondo" },
@@ -28,6 +28,7 @@ const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "supe
   { id: "documents", label: "書類配布", visibleTo: "super_only" },
   { id: "employee_manage", label: "従業員管理", visibleTo: "super_only" },
   { id: "settings", label: "設定", visibleTo: "owner_only" },
+  { id: "payroll", label: "給与計算", visibleTo: "owner_only" },
 ];
 const OWNER_CODES = ["D02", "D18", "D67"];
 const SUPER_CODES = ["D02", "D18", "D67"];
@@ -1280,25 +1281,77 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
   );
 };
 
+/* ── グループ化サブメニュー定義（HONBU用） ── */
+const GROUPED_MENU: { group: string | null; tabs: SubTab[] }[] = [
+  { group: "有給管理", tabs: ["notifications", "paidleave", "leave_approval"] },
+  { group: null, tabs: ["individual", "daily", "monthly", "settings"] },
+  { group: "給与処理", tabs: ["sharoushi", "payroll"] },
+  { group: "情報管理", tabs: ["requests", "documents", "employee_manage"] },
+];
+
+const GroupedSubMenu = ({ visibleTabs, sub, setSub, onPayroll }: { visibleTabs: { id: SubTab; label: string }[]; sub: SubTab; setSub: (s: SubTab) => void; onPayroll: () => void }) => {
+  const visibleIds = new Set(visibleTabs.map(t => t.id));
+  const labelMap = Object.fromEntries(visibleTabs.map(t => [t.id, t.label]));
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+
+  return (
+    <div style={{ display: "flex", gap: 2, marginBottom: 16, borderBottom: `1px solid ${T.border}`, overflowX: "auto", alignItems: "flex-end" }}>
+      {GROUPED_MENU.map((g, gi) => {
+        const groupTabs = g.tabs.filter(id => visibleIds.has(id));
+        if (groupTabs.length === 0) return null;
+
+        if (!g.group) {
+          return groupTabs.map(id => (
+            <button key={id} onClick={() => { setSub(id); setOpenGroup(null); }} style={{ padding: "10px 12px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: sub === id ? 700 : 400, color: sub === id ? T.primary : T.textSec, borderBottom: sub === id ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{labelMap[id]}</button>
+          ));
+        }
+
+        const isActive = groupTabs.includes(sub);
+        const isOpen = openGroup === g.group;
+        return (
+          <div key={gi} style={{ position: "relative" }}>
+            <button onClick={() => setOpenGroup(isOpen ? null : g.group)} style={{ padding: "10px 12px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? T.primary : T.textSec, borderBottom: isActive ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{g.group} ▾</button>
+            {isOpen && (
+              <div style={{ position: "absolute", top: "100%", left: 0, backgroundColor: "#fff", border: `1px solid ${T.border}`, borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", zIndex: 200, minWidth: 140, padding: "4px 0" }}>
+                {groupTabs.map(id => (
+                  <button key={id} onClick={() => { if (id === "payroll") { onPayroll(); } else { setSub(id); } setOpenGroup(null); }} style={{ display: "block", width: "100%", padding: "10px 16px", border: "none", backgroundColor: sub === id ? T.primary + "10" : "transparent", cursor: "pointer", fontSize: 13, fontWeight: sub === id ? 700 : 400, color: sub === id ? T.primary : T.text, textAlign: "left", whiteSpace: "nowrap" }}>{labelMap[id]}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export default function AdminTab({ employee }: { employee: any }) {
   const myCode = employee?.employee_code || "";
   const isOwner = OWNER_CODES.includes(myCode);
   const isSuper = SUPER_CODES.includes(myCode);
+  const isHonbu = HONBU_CODES.includes(myCode);
   const isIwanaga = myCode === "D49";
   const visibleTabs = ALL_SUB_TABS.filter(t => {
-    if (isIwanaga) return t.id === "documents" || t.id === "employee_manage" || t.id === "individual" || t.id === "daily" || t.id === "monthly";
-    if (t.visibleTo === "owner_only") return isOwner;
+    if (isIwanaga) return t.id === "documents" || t.id === "employee_manage" || t.id === "individual" || t.id === "daily" || t.id === "monthly" || t.id === "payroll" || t.id === "sharoushi";
+    if (t.visibleTo === "owner_only") return isOwner || isHonbu;
     if (t.visibleTo === "owner_or_kondo") return isOwner;
     if (t.visibleTo === "super_only") return isOwner || isSuper;
     return true;
   });
   const defaultTab = isOwner ? "notifications" : "individual";
   const [sub, setSub] = useState<SubTab>(defaultTab);
+
+  const handlePayroll = () => { window.location.href = "/payroll"; };
+
   return (
     <div style={{ padding: "16px 12px", maxWidth: 960, margin: "0 auto" }}>
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
-        {visibleTabs.map(t => (<button key={t.id} onClick={() => setSub(t.id)} style={{ padding: "10px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: sub === t.id ? 700 : 400, color: sub === t.id ? T.primary : T.textSec, borderBottom: sub === t.id ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{t.label}</button>))}
-      </div>
+      {isHonbu ? (
+        <GroupedSubMenu visibleTabs={visibleTabs} sub={sub} setSub={setSub} onPayroll={handlePayroll} />
+      ) : (
+        <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
+          {visibleTabs.filter(t => t.id !== "payroll").map(t => (<button key={t.id} onClick={() => setSub(t.id)} style={{ padding: "10px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: sub === t.id ? 700 : 400, color: sub === t.id ? T.primary : T.textSec, borderBottom: sub === t.id ? `3px solid ${T.primary}` : "3px solid transparent", transition: "all 0.2s", whiteSpace: "nowrap" }}>{t.label}</button>))}
+        </div>
+      )}
       {sub === "notifications" && <NotificationsSub employee={employee} />}
       {sub === "paidleave" && <PaidLeaveSub employee={employee} />}
       {sub === "leave_approval" && <LeaveApprovalSub employee={employee} />}
