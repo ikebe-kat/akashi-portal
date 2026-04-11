@@ -12,8 +12,9 @@ import type {
 
 const AKASHI_COMPANY_ID = 'e85e40ac-71f7-4918-b2fc-36d877337b74';
 const OVERTIME_THRESHOLD_MINUTES = 480; // 日次8時間 = 480分
-const AVERAGE_WORK_DAYS = 19.66;        // 日割計算用
+const AVERAGE_WORK_DAYS = 19.66;        // 日割計算用（月平均所定労働日数）
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数
+const DEPENDENT_ALLOWANCE_PER_PERSON = 5000; // 扶養手当（1人あたり/月）
 const EXCLUDE_CODES = ['D02', 'D18', 'D49', 'D67']; // KAT WORLD側で給与処理
 
 // ============================================
@@ -337,7 +338,7 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
     return t ? t.monthly_amount : 0;
   };
   const calcQual = (q: any) => !q || !Array.isArray(q) ? 0 : q.reduce((s: number, n: string) => s + (qualMap.get(n) || 0), 0);
-  const calcDep = (c: number | null) => (c || 0) * 5000;
+  const calcDep = (c: number | null) => (c || 0) * DEPENDENT_ALLOWANCE_PER_PERSON;
 
   return (data || []).map((e: any) => {
     const c = e.employee_payroll_config?.[0] || {};
