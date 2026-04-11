@@ -35,6 +35,7 @@ const FT_COLS: { key: string; label: string; editable: boolean; width: number }[
   { key: "employee_code", label: "コード", editable: false, width: 70 },
   { key: "full_name", label: "氏名", editable: false, width: 100 },
   { key: "work_days", label: "出勤", editable: false, width: 50 },
+  { key: "paid_leave_days", label: "有給日", editable: false, width: 50 },
   { key: "base_salary", label: "基本給", editable: true, width: 90 },
   { key: "position_allowance", label: "役職手当", editable: true, width: 80 },
   { key: "qualification_allowance", label: "資格手当", editable: true, width: 80 },
@@ -52,6 +53,8 @@ const PT_COLS: { key: string; label: string; editable: boolean; width: number }[
   { key: "employee_code", label: "コード", editable: false, width: 70 },
   { key: "full_name", label: "氏名", editable: false, width: 100 },
   { key: "work_days", label: "出勤", editable: false, width: 50 },
+  { key: "paid_leave_days", label: "有給日", editable: false, width: 50 },
+  { key: "paid_leave_amount", label: "有給額", editable: true, width: 80 },
   { key: "hourly_weekday_minutes", label: "平日時間", editable: true, width: 75 },
   { key: "hourly_rate_weekday", label: "平日時給", editable: true, width: 75 },
   { key: "hourly_saturday_minutes", label: "土曜時間", editable: true, width: 75 },
@@ -73,7 +76,7 @@ function recalcPtTotal(r: any): number {
   const base = Math.round(((r.hourly_weekday_minutes||0)/60)*(r.hourly_rate_weekday||0)
     +((r.hourly_saturday_minutes||0)/60)*(r.hourly_rate_saturday||0)
     +((r.hourly_sunday_minutes||0)/60)*(r.hourly_rate_sunday||0));
-  return base + (r.commute_allowance||0) + (r.adjustment_allowance||0);
+  return base + (r.commute_allowance||0) + (r.adjustment_allowance||0) + (r.paid_leave_amount||0);
 }
 function recalcPtBase(r: any): number {
   return Math.round(((r.hourly_weekday_minutes||0)/60)*(r.hourly_rate_weekday||0)
@@ -110,6 +113,24 @@ export default function PayrollSub({ employee }: { employee: any }) {
         .eq("target_month", parseInt(yearMonth.split("-")[1]))
         .order("employee_id");
       if (fe) throw fe;
+      // 有給日数を取得（対象月のattendance_dailyから承認済み有給を集計）
+      const [y, m] = yearMonth.split("-").map(Number);
+      const monthStart = `${y}-${String(m).padStart(2,"0")}-01`;
+      const monthEnd = `${y}-${String(m).padStart(2,"0")}-${new Date(y, m, 0).getDate()}`;
+      const { data: attData } = await supabase.from("attendance_daily")
+        .select("employee_id, reason")
+        .eq("company_id", AKASHI_COMPANY_ID)
+        .gte("attendance_date", monthStart).lte("attendance_date", monthEnd)
+        .like("reason", "%有給%");
+      const leaveDaysMap: Record<string, number> = {};
+      (attData || []).forEach((a: any) => {
+        if (!a.reason) return;
+        let days = 0;
+        if (a.reason.includes("有給（全日）")) days = 1;
+        else if (a.reason.includes("午前有給") || a.reason.includes("午後有給")) days = 0.5;
+        if (days > 0) leaveDaysMap[a.employee_id] = (leaveDaysMap[a.employee_id] || 0) + days;
+      });
+
       // flatten & sort by employee_code
       const mapped = (data || []).map((r: any) => {
         const cfg = r.employees?.employee_payroll_config?.[0] || {};
@@ -122,6 +143,8 @@ export default function PayrollSub({ employee }: { employee: any }) {
           hourly_rate_weekday: cfg.hourly_wage_weekday || 0,
           hourly_rate_saturday: cfg.hourly_wage_saturday || 0,
           hourly_rate_sunday: cfg.hourly_wage_sunday || 0,
+          paid_leave_days: leaveDaysMap[r.employee_id] || 0,
+          paid_leave_amount: r.paid_leave_amount || 0,
         };
       });
       mapped.sort((a: any, b: any) => a.employee_code.localeCompare(b.employee_code));
@@ -150,6 +173,7 @@ export default function PayrollSub({ employee }: { employee: any }) {
     commute_allowance: [0, 99999], dependent_allowance: [0, 999999],
     fixed_overtime: [0, 999999], overtime_pay: [0, 999999],
     adjustment_allowance: [-999999, 999999], absence_deduction: [0, 999999],
+    paid_leave_amount: [0, 999999],
     hourly_weekday_minutes: [0, 9999], hourly_saturday_minutes: [0, 9999], hourly_sunday_minutes: [0, 9999],
     hourly_rate_weekday: [0, 9999], hourly_rate_saturday: [0, 9999], hourly_rate_sunday: [0, 9999],
   };
@@ -178,6 +202,7 @@ export default function PayrollSub({ employee }: { employee: any }) {
     base_salary: "基本給", position_allowance: "役職手当", qualification_allowance: "資格手当",
     commute_allowance: "通勤手当", dependent_allowance: "扶養手当", fixed_overtime: "固定残業",
     overtime_pay: "超過残業", adjustment_allowance: "調整手当", absence_deduction: "欠勤控除",
+    paid_leave_amount: "有給額",
     hourly_weekday_minutes: "平日時間", hourly_saturday_minutes: "土曜時間", hourly_sunday_minutes: "日曜時間",
   };
 
@@ -199,6 +224,7 @@ export default function PayrollSub({ employee }: { employee: any }) {
           uf.hourly_sunday_minutes = r.hourly_sunday_minutes || 0;
           uf.base_salary = r.base_salary;
           uf.commute_allowance = r.commute_allowance || 0;
+          uf.paid_leave_amount = r.paid_leave_amount || 0;
         } else {
           uf.base_salary = r.base_salary || 0;
           uf.position_allowance = r.position_allowance || 0;
@@ -417,6 +443,7 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
 }) {
   const fmtVal = (key: string, val: any) => {
     if (key === "work_days") return val != null ? `${val}` : "0";
+    if (key === "paid_leave_days") return val != null ? `${val}` : "0";
     if (key.includes("minutes")) return val != null ? `${val}` : "0";
     if (key === "employee_code" || key === "full_name") return val || "";
     return val != null ? `¥${Number(val).toLocaleString()}` : "¥0";
