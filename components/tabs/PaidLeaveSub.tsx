@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { T, GRANT_MONTHS, DAYS_FULL, DAYS_PART } from "@/lib/constants";
+import { T, GRANT_MONTHS, DAYS_FULL, DAYS_PART, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 
 /* ── 労基法テーブル定数は lib/constants.ts からimport済み ── */
@@ -29,6 +29,63 @@ function calcNextGrant(hireDate: Date, afterDate: Date, weekly: number): { date:
     const gd = addMonths(hireDate, m);
     if (gd >= afterDate) return { date: gd, days: getGrantDays(6, weekly) };
   }
+  return null;
+}
+
+/* ── 明石西用: 4/1一斉付与ロジック ── */
+function calcNextGrantAkashi(hireDate: Date, afterDate: Date, weekly: number): { date: Date; days: number } | null {
+  const hire = new Date(hireDate);
+  hire.setHours(0, 0, 0, 0);
+
+  // 初回付与日 = 入社6ヶ月後
+  const firstGrant = addMonths(hire, 6);
+
+  // 次の4/1を算出
+  let nextApril = new Date(afterDate.getFullYear(), 3, 1); // 4月=index3
+  if (nextApril <= afterDate) nextApril = new Date(afterDate.getFullYear() + 1, 3, 1);
+
+  // 初回がまだ来ていない && 初回 < 次の4/1 → 初回を返す
+  if (firstGrant >= afterDate && firstGrant < nextApril) {
+    return { date: firstGrant, days: getGrantDays(0, weekly) };
+  }
+
+  // それ以外 → 次の4/1、勤続年数から付与日数を算出
+  const monthsFromHire = (nextApril.getFullYear() - hire.getFullYear()) * 12 + (nextApril.getMonth() - hire.getMonth());
+  let grantIndex = 0;
+  for (let i = 0; i < GRANT_MONTHS.length; i++) {
+    if (monthsFromHire >= GRANT_MONTHS[i]) grantIndex = i;
+  }
+  return { date: nextApril, days: getGrantDays(grantIndex, weekly) };
+}
+
+/* ── 明石西用: 年5日チェック期間を算出 ── */
+function calcFiveDayPeriodAkashi(
+  hireDate: Date, grantDate: Date, today: Date
+): { start: Date; end: Date } | null {
+  const hire = new Date(hireDate);
+  hire.setHours(0, 0, 0, 0);
+  const firstGrant = addMonths(hire, 6);
+  const gd = new Date(grantDate);
+  gd.setHours(0, 0, 0, 0);
+
+  // 初回期間の判定: grantDateが初回付与日（入社6ヶ月後）で、まだ次の4/1前
+  const isFirstGrant = Math.abs(gd.getTime() - firstGrant.getTime()) < 86400000; // 1日以内
+  let nextApril = new Date(gd.getFullYear(), 3, 1);
+  if (nextApril <= gd) nextApril = new Date(gd.getFullYear() + 1, 3, 1);
+
+  if (isFirstGrant && firstGrant < nextApril) {
+    // 中途入社の初回期間: 初回付与日〜初回付与日+1年
+    const end = new Date(gd);
+    end.setFullYear(end.getFullYear() + 1);
+    if (end > today) return { start: gd, end };
+  }
+
+  // 通常: 直近の4/1〜翌3/31
+  const yr = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1; // 4月始まり年度
+  const periodStart = new Date(yr, 3, 1);
+  const periodEnd = new Date(yr + 1, 3, 1);
+  if (periodEnd > today) return { start: periodStart, end: periodEnd };
+
   return null;
 }
 
@@ -167,7 +224,10 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
         const hire = new Date(emp.hire_date);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
-        const ng = calcNextGrant(hire, tomorrow, emp.weekly);
+        const isAkashi = employee?.company_id === AKASHI_COMPANY_ID;
+        const ng = isAkashi
+          ? calcNextGrantAkashi(hire, tomorrow, emp.weekly)
+          : calcNextGrant(hire, tomorrow, emp.weekly);
         if (ng) {
           nextDate = fmtDate(ng.date);
           nextDays = ng.days;
@@ -186,19 +246,40 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
         const latestQualifying = qualifyingGrants.sort((a, b) => b.grant_date.localeCompare(a.grant_date))[0];
         const grantDate = new Date(latestQualifying.grant_date);
         const hire = new Date(emp.hire_date);
-        const tomorrow2 = new Date(grantDate);
-        tomorrow2.setDate(tomorrow2.getDate() + 1);
-        const nextAfterGrant = calcNextGrant(hire, tomorrow2, emp.weekly);
+        const isAkashi5 = employee?.company_id === AKASHI_COMPANY_ID;
 
-        if (nextAfterGrant && nextAfterGrant.date > today) {
-          fiveDeadline = fmtDate(nextAfterGrant.date);
-          const daysUntil = Math.ceil((nextAfterGrant.date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        let periodStart: Date;
+        let periodEnd: Date;
+
+        if (isAkashi5) {
+          // 明石西: 4/1一斉付与ベースの期間
+          const period = calcFiveDayPeriodAkashi(hire, grantDate, today);
+          if (period) {
+            periodStart = period.start;
+            periodEnd = period.end;
+          } else {
+            periodStart = grantDate;
+            periodEnd = new Date(grantDate);
+            periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+          }
+        } else {
+          // KAT: 入社日ベースの期間（既存ロジック）
+          const tomorrow2 = new Date(grantDate);
+          tomorrow2.setDate(tomorrow2.getDate() + 1);
+          const nextAfterGrant = calcNextGrant(hire, tomorrow2, emp.weekly);
+          periodStart = grantDate;
+          periodEnd = nextAfterGrant?.date || new Date(grantDate.getFullYear() + 1, grantDate.getMonth(), grantDate.getDate());
+        }
+
+        if (periodEnd > today) {
+          fiveDeadline = fmtDate(periodEnd);
+          const daysUntil = Math.ceil((periodEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
           /* この期間内の有給取得日数をカウント */
           const empAtt = attByEmp[emp.id] || [];
           empAtt.forEach(a => {
             const ad = new Date(a.date);
-            if (ad >= grantDate && ad < nextAfterGrant.date) {
+            if (ad >= periodStart && ad < periodEnd) {
               if (a.reason.includes("有給") && !a.reason.includes("半有")) fiveTaken += 1;
               if (a.reason.includes("半有(前)")) fiveTaken += 0.5;
               if (a.reason.includes("半有(後)")) fiveTaken += 0.5;
