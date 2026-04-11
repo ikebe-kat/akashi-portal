@@ -668,7 +668,9 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             <Dot color={T.holidayRed} label="休暇申請" />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
               <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
-              <Chip label={displayChipLabel("選択休（全日）", employee?.employee_code || "")} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
+              {!(employee?.company_id === AKASHI_COMPANY_ID && (yr > 2026 || (yr === 2026 && mo >= 5))) && (
+                <Chip label={displayChipLabel("選択休（全日）", employee?.employee_code || "")} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
+              )}
             </div>
 
 
