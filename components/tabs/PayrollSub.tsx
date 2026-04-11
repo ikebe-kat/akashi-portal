@@ -92,6 +92,10 @@ export default function PayrollSub({ employee }: { employee: any }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [editingCell, setEditingCell] = useState<string | null>(null); // "rowIdx-colKey"
   const [storeFilter, setStoreFilter] = useState("all");
+  const [originalRows, setOriginalRows] = useState<any[]>([]); // 差分比較用
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+  const [historyFilter, setHistoryFilter] = useState("all"); // employee_code or "all"
 
   const ymOptions = generateYearMonthOptions();
   const periods = getPeriods(yearMonth);
@@ -122,6 +126,7 @@ export default function PayrollSub({ employee }: { employee: any }) {
       });
       mapped.sort((a: any, b: any) => a.employee_code.localeCompare(b.employee_code));
       setRows(mapped);
+      setOriginalRows(mapped.map((r: any) => ({ ...r })));
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   }, [yearMonth]);
@@ -168,10 +173,20 @@ export default function PayrollSub({ employee }: { employee: any }) {
     });
   };
 
+  // 差分記録対象のカラム→日本語ラベル
+  const TRACKED_FIELDS: Record<string, string> = {
+    base_salary: "基本給", position_allowance: "役職手当", qualification_allowance: "資格手当",
+    commute_allowance: "通勤手当", dependent_allowance: "扶養手当", fixed_overtime: "固定残業",
+    overtime_pay: "超過残業", adjustment_allowance: "調整手当", absence_deduction: "欠勤控除",
+    hourly_weekday_minutes: "平日時間", hourly_saturday_minutes: "土曜時間", hourly_sunday_minutes: "日曜時間",
+  };
+
   const handleSaveAll = async () => {
     setSaving(true); setError(null); setSuccess(null);
     try {
+      const changeLogs: any[] = [];
       for (const r of rows) {
+        const orig = originalRows.find((o: any) => o.id === r.id);
         const isPt = r.employment_type === "パート";
         const uf: any = {
           total_payment: r.total_payment,
@@ -194,13 +209,45 @@ export default function PayrollSub({ employee }: { employee: any }) {
           uf.overtime_pay = r.overtime_pay || 0;
           uf.absence_deduction = r.absence_deduction || 0;
         }
+        // 差分記録
+        if (orig) {
+          for (const [field] of Object.entries(TRACKED_FIELDS)) {
+            const oldVal = orig[field] ?? 0;
+            const newVal = r[field] ?? 0;
+            if (oldVal !== newVal) {
+              changeLogs.push({
+                payroll_monthly_id: r.id,
+                employee_id: r.employee_id,
+                changed_by: employee?.employee_code || "unknown",
+                field_name: field,
+                old_value: oldVal,
+                new_value: newVal,
+              });
+            }
+          }
+        }
         const { error: ue } = await supabase.from("payroll_monthly").update(uf).eq("id", r.id);
         if (ue) throw ue;
       }
-      setSuccess("保存しました");
+      // 差分があればログ保存
+      if (changeLogs.length > 0) {
+        await supabase.from("payroll_change_logs").insert(changeLogs);
+      }
+      setSuccess(`保存しました${changeLogs.length > 0 ? `（${changeLogs.length}件の変更を記録）` : ""}`);
       await loadData();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
+  };
+
+  // 変更履歴取得
+  const loadHistory = async () => {
+    const [y, m] = yearMonth.split("-").map(Number);
+    const { data } = await supabase.from("payroll_change_logs")
+      .select("*, employees (employee_code, full_name)")
+      .in("payroll_monthly_id", rows.map(r => r.id))
+      .order("changed_at", { ascending: false });
+    setHistoryLogs(data || []);
+    setShowHistory(true);
   };
 
   const matchStore = (r: any) => {
@@ -254,9 +301,9 @@ export default function PayrollSub({ employee }: { employee: any }) {
 
       {loading && <p style={{ fontSize: 13, color: "#888" }}>読み込み中...</p>}
 
-      {/* 店舗フィルター */}
+      {/* 店舗フィルター + 変更履歴ボタン */}
       {rows.length > 0 && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           {STORE_FILTERS.map(f => (
             <button key={f.value} onClick={() => setStoreFilter(f.value)} style={{
               padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: storeFilter === f.value ? 700 : 400,
@@ -265,6 +312,11 @@ export default function PayrollSub({ employee }: { employee: any }) {
               color: storeFilter === f.value ? T.primary : T.textSec,
             }}>{f.label}</button>
           ))}
+          <button onClick={loadHistory} style={{
+            padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600,
+            cursor: "pointer", border: "2px solid #7C3AED",
+            backgroundColor: "#7C3AED15", color: "#7C3AED", marginLeft: "auto",
+          }}>変更履歴</button>
         </div>
       )}
 
@@ -295,6 +347,57 @@ export default function PayrollSub({ employee }: { employee: any }) {
             {saving ? "保存中..." : "全員分を保存"}
           </button>
           <span style={{ fontSize: 12, color: "#888" }}>正社員+パート合計: ¥{(ftTotal + ptTotal).toLocaleString()}</span>
+        </div>
+      )}
+
+      {/* 変更履歴モーダル */}
+      {showHistory && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}
+          onClick={() => setShowHistory(false)}>
+          <div style={{ backgroundColor: "#fff", borderRadius: 10, padding: 24, width: "100%", maxWidth: 640, maxHeight: "80vh", overflow: "auto" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#7C3AED", margin: 0 }}>変更履歴 — {yearMonth.replace("-","年")}月</h3>
+              <button onClick={() => setShowHistory(false)} style={{ border: "none", backgroundColor: "transparent", fontSize: 18, cursor: "pointer", color: T.textMuted }}>✕</button>
+            </div>
+            {/* 従業員フィルタ */}
+            <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
+              <button onClick={() => setHistoryFilter("all")} style={{ padding: "5px 10px", borderRadius: 16, fontSize: 11, fontWeight: historyFilter === "all" ? 700 : 400, cursor: "pointer", border: historyFilter === "all" ? "2px solid #7C3AED" : `1px solid ${T.border}`, backgroundColor: historyFilter === "all" ? "#7C3AED15" : "#fff", color: historyFilter === "all" ? "#7C3AED" : T.textSec }}>全員</button>
+              {[...new Set(historyLogs.map((l: any) => l.employees?.employee_code).filter(Boolean))].sort().map(code => (
+                <button key={code} onClick={() => setHistoryFilter(code)} style={{ padding: "5px 10px", borderRadius: 16, fontSize: 11, fontWeight: historyFilter === code ? 700 : 400, cursor: "pointer", border: historyFilter === code ? "2px solid #7C3AED" : `1px solid ${T.border}`, backgroundColor: historyFilter === code ? "#7C3AED15" : "#fff", color: historyFilter === code ? "#7C3AED" : T.textSec }}>{code}</button>
+              ))}
+            </div>
+            {historyLogs.length === 0 ? (
+              <p style={{ textAlign: "center", color: T.textMuted, padding: 32, fontSize: 13 }}>変更履歴はありません</p>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead><tr style={{ backgroundColor: "#f3f0ff", borderBottom: "2px solid #7C3AED" }}>
+                  <th style={{ padding: "8px 6px", textAlign: "left" }}>従業員</th>
+                  <th style={{ padding: "8px 6px", textAlign: "left" }}>項目</th>
+                  <th style={{ padding: "8px 6px", textAlign: "right" }}>変更前</th>
+                  <th style={{ padding: "8px 6px", textAlign: "center" }}>→</th>
+                  <th style={{ padding: "8px 6px", textAlign: "right" }}>変更後</th>
+                  <th style={{ padding: "8px 6px", textAlign: "left" }}>変更者</th>
+                  <th style={{ padding: "8px 6px", textAlign: "left" }}>日時</th>
+                </tr></thead>
+                <tbody>
+                  {historyLogs
+                    .filter((l: any) => historyFilter === "all" || l.employees?.employee_code === historyFilter)
+                    .map((l: any) => (
+                    <tr key={l.id} style={{ borderBottom: "1px solid #eee" }}>
+                      <td style={{ padding: "6px" }}>{l.employees?.employee_code} {l.employees?.full_name}</td>
+                      <td style={{ padding: "6px" }}>{TRACKED_FIELDS[l.field_name] || l.field_name}</td>
+                      <td style={{ padding: "6px", textAlign: "right", color: "#991B1B" }}>¥{(l.old_value ?? 0).toLocaleString()}</td>
+                      <td style={{ padding: "6px", textAlign: "center", color: T.textMuted }}>→</td>
+                      <td style={{ padding: "6px", textAlign: "right", color: "#065F46", fontWeight: 600 }}>¥{(l.new_value ?? 0).toLocaleString()}</td>
+                      <td style={{ padding: "6px" }}>{l.changed_by}</td>
+                      <td style={{ padding: "6px", color: T.textMuted, fontSize: 11 }}>{new Date(l.changed_at).toLocaleString("ja-JP")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
     </div>
