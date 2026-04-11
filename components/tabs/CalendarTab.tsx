@@ -326,6 +326,154 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
   );
 };
 
+// ── SVGアイコン ──────────────────────────
+const IconCalendar = ({ color = T.textMuted, size = 22 }: { color?: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+);
+const IconBell = ({ color = T.textMuted, size = 22 }: { color?: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
+  </svg>
+);
+const IconUsers = ({ color = T.textMuted, size = 22 }: { color?: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87" /><path d="M16 3.13a4 4 0 010 7.75" />
+  </svg>
+);
+
+// ── 新着履歴ユーティリティ ──────────────────────
+function fmtTimestamp(ts: string): string {
+  const d = new Date(ts); const now = new Date(); const diff = now.getTime() - d.getTime();
+  if (diff < 60000) return "たった今"; if (diff < 3600000) return `${Math.floor(diff / 60000)}分前`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}時間前`; if (diff < 172800000) return "昨日";
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+function fmtDateShort(ds: string): string { const d = new Date(ds+"T00:00:00"); return `${d.getMonth()+1}/${d.getDate()}(${DOW[d.getDay()]})`; }
+function reasonToColor(r: string): string { if (r.includes("有給")) return T.yukyuBlue; if (r.includes("選択休")||r.includes("公休")) return T.kibouYellow; if (r.includes("代休")||r.includes("出張")) return T.kinmuGreen; return T.textMuted; }
+function reasonToLabel(r: string): string {
+  if (r.includes("有給（全日）")) return "有給"; if (r.includes("午前有給")) return "有給（午前）"; if (r.includes("午後有給")) return "有給（午後）";
+  if (r.includes("選択休（全日）")) return "選択休"; if (r.includes("午前選択休")) return "選択休（午前）"; if (r.includes("午後選択休")) return "選択休（午後）";
+  if (r.match(/^代休/) && !r.includes("午前") && !r.includes("午後")) return "代休"; if (r.includes("午前代休")) return "代休（午前）"; if (r.includes("午後代休")) return "代休（午後）";
+  if (r.includes("出張")) { const m = r.match(/出張（(.+)）/); return m ? `出張（${m[1]}）` : "出張"; }
+  return r;
+}
+
+interface HistoryItem { id: string; kind: "attendance"|"event"; action: "登録"|"変更"; who: string; what: string; targetDate: string; operatedAt: string; color: string; }
+
+// ── 新着コンポーネント ──────────────────────
+function RecentChanges({ employee, group }: { employee: any; group: string }) {
+  const [items, setItems] = useState<HistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [limit, setLimit] = useState(30);
+
+  const fetchHistory = useCallback(async () => {
+    if (!employee?.company_id) return;
+    setLoading(true);
+    const since = new Date(); since.setDate(since.getDate() - 60);
+    const sinceStr = since.toISOString();
+
+    const [attRes, evRes] = await Promise.all([
+      supabase.from("attendance_daily")
+        .select("employee_id, attendance_date, reason, created_at, updated_at, employees!inner(full_name, employee_code, store_id, department)")
+        .eq("company_id", employee.company_id).not("reason","is",null).neq("reason","").neq("reason","公休（全日）").neq("reason","休職")
+        .not("updated_at","is",null).gte("updated_at", sinceStr).order("updated_at",{ascending:false}).limit(100),
+      supabase.from("custom_events")
+        .select("id, title, start_date, color, target_calendar, creator_name, created_at, updated_at")
+        .eq("company_id", employee.company_id).not("updated_at","is",null).gte("updated_at", sinceStr).order("updated_at",{ascending:false}).limit(100),
+    ]);
+
+    const history: HistoryItem[] = [];
+    for (const row of (attRes.data || [])) {
+      const emp = row.employees as any; if (!emp || emp.employee_code === "D02") continue;
+      const cg = storeIdToCalGroup(emp.store_id || null, emp.department || null);
+      if (group !== "all" && cg !== group) continue;
+      const reason = row.reason as string;
+      const isNew = row.created_at === row.updated_at;
+      history.push({ id: `att-${row.employee_id}-${row.attendance_date}`, kind: "attendance", action: isNew ? "登録" : "変更", who: emp.full_name || "不明", what: reasonToLabel(reason), targetDate: row.attendance_date as string, operatedAt: row.updated_at as string, color: reasonToColor(reason) });
+    }
+    const calMapLocal: Record<string,string> = { all:"all", okubo:"okubo", uozumi:"uozumi", "全店舗":"all", "大久保店":"okubo", "魚住店":"uozumi" };
+    for (const ev of (evRes.data || [])) {
+      const evCal = calMapLocal[ev.target_calendar] || ev.target_calendar;
+      if (group !== "all" && evCal !== "all" && evCal !== group) continue;
+      const isNew = ev.created_at === ev.updated_at;
+      history.push({ id: `ev-${ev.id}`, kind: "event", action: isNew ? "登録" : "変更", who: ev.creator_name || "不明", what: ev.title, targetDate: ev.start_date, operatedAt: ev.updated_at, color: ev.color || T.primary });
+    }
+    history.sort((a,b) => new Date(b.operatedAt).getTime() - new Date(a.operatedAt).getTime());
+    setItems(history); setLoading(false);
+  }, [employee?.company_id, group]);
+
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+  if (loading) return <div style={{ textAlign: "center", padding: 24, fontSize: 13, color: T.textMuted }}>読み込み中...</div>;
+  if (items.length === 0) return <div style={{ textAlign: "center", padding: 40, fontSize: 13, color: T.textMuted }}>新着はありません</div>;
+  const visible = items.slice(0, limit);
+  return (
+    <div style={{ padding: "0 2px" }}>
+      {visible.map(item => (
+        <div key={item.id} style={{ display: "flex", gap: 10, padding: "10px 4px", borderBottom: `1px solid ${T.borderLight}` }}>
+          <div style={{ width: 4, minHeight: 36, borderRadius: 2, backgroundColor: item.color, flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.who.split(/\s+/)[0]}</span>
+              <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, backgroundColor: item.action === "変更" ? "#FEF3C7" : "#DBEAFE", color: item.action === "変更" ? T.warning : T.yukyuBlue }}>{item.action}</span>
+            </div>
+            <div style={{ fontSize: 13, color: T.text, marginBottom: 2 }}>{item.what}</div>
+            <div style={{ fontSize: 11, color: T.textMuted }}><span>{fmtDateShort(item.targetDate)}の予定</span><span style={{ margin: "0 4px" }}>・</span><span>{fmtTimestamp(item.operatedAt)}</span></div>
+          </div>
+        </div>
+      ))}
+      {items.length > limit && (
+        <div style={{ textAlign: "center", padding: "12px 0" }}>
+          <button onClick={() => setLimit(l => l + 30)} style={{ fontSize: 13, color: T.primary, background: "none", border: `1px solid ${T.primary}`, borderRadius: 6, padding: "8px 24px", cursor: "pointer" }}>もっと見る</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── メンバー一覧コンポーネント ──────────────────────
+function MemberList({ employee, group }: { employee: any; group: string }) {
+  const [members, setMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchMembers = useCallback(async () => {
+    if (!employee?.company_id) return;
+    setLoading(true);
+    const { data } = await supabase.from("employees")
+      .select("id, full_name, employee_code, store_id, department, stores!inner(store_name)")
+      .eq("company_id", employee.company_id).eq("is_active", true).order("employee_code", { ascending: true });
+    const filtered = (data || []).filter((emp: any) => {
+      if (group === "all") return true;
+      const cg = storeIdToCalGroup(emp.store_id || null, emp.department || null);
+      return cg === group;
+    });
+    setMembers(filtered); setLoading(false);
+  }, [employee?.company_id, group]);
+
+  useEffect(() => { fetchMembers(); }, [fetchMembers]);
+  if (loading) return <div style={{ textAlign: "center", padding: 24, fontSize: 13, color: T.textMuted }}>読み込み中...</div>;
+  if (members.length === 0) return <div style={{ textAlign: "center", padding: 40, fontSize: 13, color: T.textMuted }}>メンバーはいません</div>;
+  return (
+    <div style={{ padding: "0 2px" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: T.textMuted, padding: "8px 0 6px" }}>
+        {CAL_GROUPS.find(g => g.id === group)?.label || "全店舗"}　{members.length}名
+      </div>
+      {members.map(m => (
+        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 4px", borderBottom: `1px solid ${T.borderLight}` }}>
+          <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: T.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, color: T.primary, flexShrink: 0 }}>
+            {(m.full_name || "?").charAt(0)}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{m.full_name}</div>
+            <div style={{ fontSize: 11, color: T.textMuted }}>{(m.stores as any)?.store_name || m.department || ""}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── メインコンポーネント ──────────────────────
 export default function CalendarTab({ employee }: { employee: any }) {
   const now = new Date();
@@ -335,6 +483,10 @@ export default function CalendarTab({ employee }: { employee: any }) {
   const [selDay, setSelDay] = useState<number | null>(null);
   const [modal, setModal] = useState(false);
   const [editTarget, setEditTarget] = useState<CustomEvent | null>(null);
+  const [sidePanel, setSidePanel] = useState<"recent" | "members" | null>(null);
+  const [mobileView, setMobileView] = useState<"calendar" | "recent" | "members">("calendar");
+
+  const toggleSidePanel = (p: "recent" | "members") => setSidePanel(prev => prev === p ? null : p);
 
   // 権限判定
   const perm = getPermLevel(employee?.role || null);
@@ -713,10 +865,45 @@ export default function CalendarTab({ employee }: { employee: any }) {
             </div>
           </div>
         )}
+
+        {/* PC: 右端アイコンバー */}
+        {!isMobile && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "0 0 0 12px", alignItems: "center", paddingTop: 8 }}>
+            <button onClick={() => toggleSidePanel("recent")} title="新着"
+              style={{ width: 40, height: 40, border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: sidePanel === "recent" ? T.primaryLight : "transparent", transition: "background 0.15s" }}>
+              <IconBell color={sidePanel === "recent" ? T.primary : T.textMuted} />
+            </button>
+            <button onClick={() => toggleSidePanel("members")} title="メンバー"
+              style={{ width: 40, height: 40, border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: sidePanel === "members" ? T.primaryLight : "transparent", transition: "background 0.15s" }}>
+              <IconUsers color={sidePanel === "members" ? T.primary : T.textMuted} />
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* PC: 右スライドインパネル */}
+      {!isMobile && sidePanel && (
+        <>
+          <div onClick={() => setSidePanel(null)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.15)", zIndex: 940, animation: "calFadeIn 0.2s ease" }} />
+          <div style={{ position: "fixed", top: 100, right: 0, bottom: 0, width: 360, backgroundColor: "#fff", boxShadow: "-4px 0 24px rgba(0,0,0,0.12)", zIndex: 950, display: "flex", flexDirection: "column", borderRadius: "12px 0 0 0", animation: "calSlideIn 0.25s ease" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${T.borderLight}` }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{sidePanel === "recent" ? "新着" : "メンバー"}</div>
+              <button onClick={() => setSidePanel(null)} style={{ width: 28, height: 28, border: "none", backgroundColor: T.bg, borderRadius: "50%", color: T.textSec, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
+              {sidePanel === "recent" && <RecentChanges employee={employee} group={group} />}
+              {sidePanel === "members" && <MemberList employee={employee} group={group} />}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* スマホ: 新着・メンバービュー */}
+      {isMobile && mobileView === "recent" && <div style={{ padding: "8px 4px" }}><RecentChanges employee={employee} group={group} /></div>}
+      {isMobile && mobileView === "members" && <div style={{ padding: "8px 4px" }}><MemberList employee={employee} group={group} /></div>}
+
       {/* スマホ: 右からスライドインする詳細パネル */}
-      {selDay && isMobile && (
+      {selDay && isMobile && mobileView === "calendar" && (
         <div
           style={{
             position: "fixed", inset: 0, zIndex: 900,
@@ -767,6 +954,19 @@ export default function CalendarTab({ employee }: { employee: any }) {
           onOk={calDialog.onOk}
           onCancel={() => setCalDialog(null)}
         />
+      )}
+
+      {/* スマホ: ボトムナビバー */}
+      {isMobile && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 800, backgroundColor: "#fff", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-around", alignItems: "center", height: 56, paddingBottom: "env(safe-area-inset-bottom)" }}>
+          {([["calendar", "カレンダー", IconCalendar], ["recent", "新着", IconBell], ["members", "メンバー", IconUsers]] as const).map(([key, label, Icon]) => (
+            <button key={key} onClick={() => setMobileView(key)}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none", cursor: "pointer", padding: "4px 12px", color: mobileView === key ? T.primary : T.textMuted, transition: "color 0.15s" }}>
+              <Icon color={mobileView === key ? T.primary : T.textMuted} size={20} />
+              <span style={{ fontSize: 10, fontWeight: mobileView === key ? 700 : 400 }}>{label}</span>
+            </button>
+          ))}
+        </div>
       )}
 
       <style>{`
