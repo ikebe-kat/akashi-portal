@@ -2,6 +2,7 @@
 // akashi-portal 給与計算ロジック
 
 import { supabase } from '@/lib/supabase';
+import { AKASHI_COMPANY_ID } from '@/lib/constants';
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -10,7 +11,7 @@ import type {
   PayrollCalcParams,
 } from './types';
 
-const AKASHI_COMPANY_ID = 'e85e40ac-71f7-4918-b2fc-36d877337b74';
+// AKASHI_COMPANY_ID は lib/constants.ts からimport済み
 const OVERTIME_THRESHOLD_MINUTES = 480; // 日次8時間 = 480分
 const AVERAGE_WORK_DAYS = 19.66;        // 日割計算用（月平均所定労働日数）
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数

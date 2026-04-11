@@ -1,10 +1,10 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { T } from "@/lib/constants";
+import { T, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { calculateAll, savePayrollResults } from "@/lib/payroll/calculatePayroll";
 
-const AKASHI_COMPANY_ID = "e85e40ac-71f7-4918-b2fc-36d877337b74";
+// AKASHI_COMPANY_ID は lib/constants.ts からimport済み
 
 function generateYearMonthOptions(): string[] {
   const options: string[] = [];
@@ -277,7 +277,7 @@ export default function PayrollSub({ employee }: { employee: any }) {
         <button onClick={handleCalculate} disabled={calculating} style={{ padding: "8px 20px", backgroundColor: calculating ? "#ccc" : T.primary, color: "#fff", border: "none", borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: calculating ? "not-allowed" : "pointer" }}>
           {calculating ? "計算中..." : "計算実行"}
         </button>
-        {rows.length > 0 && <span style={{ color: "#666", fontSize: 12 }}>最終: {new Date(rows[0]?.calculated_at).toLocaleString("ja-JP")}</span>}
+        {rows.length > 0 && <span style={{ color: "#666", fontSize: 12 }}>最終: {new Date(Math.max(...rows.map(r => new Date(r.calculated_at).getTime()))).toLocaleString("ja-JP")}</span>}
       </div>
 
       {showConfirm && (

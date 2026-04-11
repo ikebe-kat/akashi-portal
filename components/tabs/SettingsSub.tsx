@@ -1,12 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { T } from "@/lib/constants";
+import { T, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 import Dialog from "@/components/ui/Dialog";
 
 const DOW = ["日","月","火","水","木","金","土"];
 
-const AKASHI_COMPANY_ID = "e85e40ac-71f7-4918-b2fc-36d877337b74";
 const CALENDAR_TYPES_AKASHI = [
   { value: "akashi_seishain_a", label: "正社員A" },
   { value: "akashi_lab", label: "正社員B（ラボ）" },

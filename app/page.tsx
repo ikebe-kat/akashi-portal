@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AKASHI_COMPANY_ID } from '@/lib/constants'
 export default function LoginPage() {
   const router = useRouter()
   const [employeeCode, setEmployeeCode] = useState('')
@@ -30,7 +31,7 @@ export default function LoginPage() {
       .from('employees')
       .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, pin, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)')
       .eq('portal_group_id', pgId)
-      .eq('company_id', 'e85e40ac-71f7-4918-b2fc-36d877337b74')
+      .eq('company_id', AKASHI_COMPANY_ID)
       .maybeSingle()
     if (data) {
       const empData = { ...data, store_name: (data as any).stores?.store_name || '' }; delete (empData as any).stores; localStorage.setItem('employee', JSON.stringify(empData))
@@ -49,7 +50,7 @@ export default function LoginPage() {
       .from('employees')
       .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, pin, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, employment_type, stores(store_name)')
       .eq('employee_code', code)
-      .eq('company_id', 'e85e40ac-71f7-4918-b2fc-36d877337b74')
+      .eq('company_id', AKASHI_COMPANY_ID)
       .maybeSingle()
     setLoading(false)
     if (dbError || !data) {

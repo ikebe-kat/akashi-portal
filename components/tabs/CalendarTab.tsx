@@ -4,7 +4,7 @@
 // レスポンシブ対応版: PC=セル110px+右パネル320px / スマホ=右スライドインパネル65%幅
 // ═══════════════════════════════════════════
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { T, DOW, PALETTE, CAL_GROUPS, stepMonth, displayReason, calendarDisplayName } from "@/lib/constants";
+import { T, DOW, PALETTE, CAL_GROUPS, stepMonth, displayReason, calendarDisplayName, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import { supabase } from "@/lib/supabase";
 import { getPermLevel, canShowCalendarGroupSelect, getDefaultCalendarGroup, canChooseTargetCalendar, canDeleteEvent, storeIdToCalGroup, getAllowedCalGroups } from "@/lib/permissions";
@@ -353,7 +353,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
   const [holidayDates, setHolidayDates] = useState<{ date: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const AKASHI_CID = "e85e40ac-71f7-4918-b2fc-36d877337b74";
+  const AKASHI_CID = AKASHI_COMPANY_ID;
 
   // ── データ取得 ──────────────────────────
   const fetchData = useCallback(async () => {

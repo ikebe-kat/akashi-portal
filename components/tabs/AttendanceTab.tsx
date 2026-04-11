@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuPart } from "@/lib/constants";
+import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuPart, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { ReasonBadges } from "@/components/ui";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import type { MonthlySummary } from "@/lib/types";
@@ -110,7 +110,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   const [shiftReqs, setShiftReqs] = useState<any[]>([]);
   const [empShiftType, setEmpShiftType] = useState<string>("work");
 
-  const isAkashiPart = employee?.employment_type === "パート" && employee?.company_id === "e85e40ac-71f7-4918-b2fc-36d877337b74";
+  const isAkashiPart = employee?.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID;
 
   /* カスタムダイアログ */
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -166,7 +166,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     setLeaveRequests(lrData ?? []);
 
     // パート: shift_typeとシフト登録データを取得
-    if (employee.employment_type === "パート" && employee.company_id === "e85e40ac-71f7-4918-b2fc-36d877337b74") {
+    if (employee.employment_type === "パート" && employee.company_id === AKASHI_COMPANY_ID) {
       const { data: cfg } = await supabase.from("employee_payroll_config")
         .select("shift_type").eq("employee_id", employee.id).limit(1).maybeSingle();
       setEmpShiftType(cfg?.shift_type || "work");

@@ -1,17 +1,9 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { T } from "@/lib/constants";
+import { T, GRANT_MONTHS, DAYS_FULL, DAYS_PART } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 
-/* ── 労基法テーブル定数 ── */
-const GRANT_MONTHS = [6, 18, 30, 42, 54, 66, 78];
-const DAYS_FULL = [10, 11, 12, 14, 16, 18, 20];
-const DAYS_PART: Record<number, number[]> = {
-  4: [7, 8, 9, 10, 12, 13, 15],
-  3: [5, 6, 6, 8, 9, 10, 11],
-  2: [3, 4, 4, 5, 6, 6, 7],
-  1: [1, 2, 2, 2, 3, 3, 3],
-};
+/* ── 労基法テーブル定数は lib/constants.ts からimport済み ── */
 
 function addMonths(d: Date, m: number): Date {
   const r = new Date(d);

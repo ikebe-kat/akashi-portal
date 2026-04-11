@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { T, DOW } from '@/lib/constants'
+import { T, DOW, AKASHI_COMPANY_ID } from '@/lib/constants'
 import { ReasonBadges } from '@/components/ui'
 import Dialog from '@/components/ui/Dialog'
 
@@ -240,7 +240,7 @@ export default function PunchTab({ employee }: { employee: any }) {
 
     if (type === 'out' &&
         employee.employment_type === 'パート' &&
-        employee.company_id === 'e85e40ac-71f7-4918-b2fc-36d877337b74') {
+        employee.company_id === AKASHI_COMPANY_ID) {
       if (todayRecord?.break_minutes_self_reported === null ||
           todayRecord?.break_minutes_self_reported === undefined) {
         alert('休憩を選択してください');
@@ -578,7 +578,7 @@ export default function PunchTab({ employee }: { employee: any }) {
 
         {/* パート休憩申告ボタン（ダイハツ明石西パート・出勤済み時のみ） */}
         {employee.employment_type === 'パート' &&
-         employee.company_id === 'e85e40ac-71f7-4918-b2fc-36d877337b74' &&
+         employee.company_id === AKASHI_COMPANY_ID &&
          status === 'in' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '0 4px' }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: T.textSec }}>休憩</span>
@@ -617,7 +617,7 @@ export default function PunchTab({ employee }: { employee: any }) {
       </div>
 
       {/* 休暇・勤務申請（ダイハツ明石西は非表示） */}
-      {employee.company_id !== 'e85e40ac-71f7-4918-b2fc-36d877337b74' && (
+      {employee.company_id !== AKASHI_COMPANY_ID && (
       <div style={{ maxWidth: 440, margin: '0 auto', textAlign: 'left' }}>
         <Dot color="#EF4444" label="休暇申請" />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
@@ -646,7 +646,7 @@ export default function PunchTab({ employee }: { employee: any }) {
       )}
 
       {/* ══════ モーダル（ダイハツ明石西は非表示） ══════ */}
-      {modalOpen && employee.company_id !== 'e85e40ac-71f7-4918-b2fc-36d877337b74' && (
+      {modalOpen && employee.company_id !== AKASHI_COMPANY_ID && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000 }}
           onClick={() => setModalOpen(false)}>
           <div style={{ backgroundColor: '#fff', borderRadius: '12px 12px 0 0', padding: '20px 20px 28px', width: '100%', maxWidth: 480, maxHeight: '85vh', overflow: 'auto', animation: 'slideUp 0.3s ease', textAlign: 'left' }}

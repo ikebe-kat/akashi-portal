@@ -2,6 +2,19 @@
 // ダイハツ明石西 勤怠アプリ — 共通定数・テーマ
 // ═══════════════════════════════════════════
 
+/** 会社ID */
+export const AKASHI_COMPANY_ID = "e85e40ac-71f7-4918-b2fc-36d877337b74";
+
+/** 有給付与日数テーブル（労基法準拠） */
+export const GRANT_MONTHS = [6, 18, 30, 42, 54, 66, 78];
+export const DAYS_FULL = [10, 11, 12, 14, 16, 18, 20];
+export const DAYS_PART: Record<number, number[]> = {
+  4: [7, 8, 9, 10, 12, 13, 15],
+  3: [5, 6, 6, 8, 9, 10, 11],
+  2: [3, 4, 4, 5, 6, 6, 7],
+  1: [1, 2, 2, 2, 3, 3, 3],
+};
+
 /** カラーテーマ */
 export const T = {
   primary:      "#e96d96",

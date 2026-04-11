@@ -2,10 +2,10 @@
 // ShiftSub.tsx — シフト管理（管理者閲覧用マトリクス）
 // パートのみ表示。shift_type=work→★、shift_type=off→休、有給→有
 import { useState, useEffect, useCallback } from "react";
-import { T, DOW } from "@/lib/constants";
+import { T, DOW, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 
-const COMPANY_ID = "e85e40ac-71f7-4918-b2fc-36d877337b74";
+const COMPANY_ID = AKASHI_COMPANY_ID;
 
 const daysInMonth = (yr: number, mo: number) => new Date(yr, mo, 0).getDate();
 const dateStr = (yr: number, mo: number, d: number) =>
