@@ -173,7 +173,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
       // 編集通知
       fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "calendar_event", payload: { action: "updated", event: { company_id: employee.company_id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } } }),
+        body: JSON.stringify({ type: "calendar_event", payload: { action: "updated", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } } }),
       }).catch(() => {});
     } else {
       const { error } = await supabase.from("custom_events").insert({
@@ -197,7 +197,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
       // 新規登録通知
       fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "calendar_event", payload: { action: "created", event: { company_id: employee.company_id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } } }),
+        body: JSON.stringify({ type: "calendar_event", payload: { action: "created", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } } }),
       }).catch(() => {});
     }
     onSaved();
@@ -653,7 +653,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
         if (ev) {
           fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "calendar_event", payload: { action: "deleted", event: { company_id: employee.company_id, creator_name: employee.full_name, title: ev.title, start_date: ev.start_date, target_calendar: ev.target_calendar } } }),
+            body: JSON.stringify({ type: "calendar_event", payload: { action: "deleted", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: ev.title, start_date: ev.start_date, target_calendar: ev.target_calendar } } }),
           }).catch(() => {});
         }
         fetchData();
