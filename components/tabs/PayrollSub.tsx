@@ -231,7 +231,8 @@ export default function PayrollSub({ employee }: { employee: any }) {
       }
       // 差分があればログ保存
       if (changeLogs.length > 0) {
-        await supabase.from("payroll_change_logs").insert(changeLogs);
+        const { error: logErr } = await supabase.from("payroll_change_logs").insert(changeLogs);
+        if (logErr) { setError("給与データは保存しましたが、変更履歴の記録に失敗しました: " + logErr.message); await loadData(); return; }
       }
       setSuccess(`保存しました${changeLogs.length > 0 ? `（${changeLogs.length}件の変更を記録）` : ""}`);
       await loadData();

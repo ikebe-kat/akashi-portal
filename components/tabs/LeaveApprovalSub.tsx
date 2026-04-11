@@ -117,9 +117,10 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
       for (const g of (grants || [])) {
         if (remaining <= 0) break;
         const consume = Math.min(remaining, Number(g.remaining_days));
-        await supabase.from("paid_leave_grants").update({
+        const { error: consumeErr } = await supabase.from("paid_leave_grants").update({
           remaining_days: Number(g.remaining_days) - consume,
         }).eq("id", g.id);
+        if (consumeErr) { setProcessing(null); setDialog({ message: "有給残の更新に失敗しました: " + consumeErr.message, mode: "alert", onOk: () => setDialog(null) }); return; }
         remaining -= consume;
       }
     }
