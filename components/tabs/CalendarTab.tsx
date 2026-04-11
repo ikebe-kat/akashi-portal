@@ -96,6 +96,7 @@ const ReasonBadges = ({ reason }: { reason: string }) => {
         else if (t === "欠勤") bg = "#6B7280";
         else if (t === "公休") { bg = "#FEF9C3"; c = "#78350F"; }
         else if (t === "出勤") { bg = "#DCFCE7"; c = T.kinmuGreen; }
+        else if (t === "定休日" || t === "店舗定休日" || t === "ラボ定休日") { bg = "#E5E7EB"; c = "#6B7280"; }
         return <Badge key={i} bg={bg} color={c}>{t}</Badge>;
       })}
     </div>
@@ -349,7 +350,10 @@ export default function CalendarTab({ employee }: { employee: any }) {
   // Supabaseデータ
   const [customEvents, setCustomEvents] = useState<CustomEvent[]>([]);
   const [attEvents, setAttEvents] = useState<AttendanceEvent[]>([]);
+  const [holidayDates, setHolidayDates] = useState<{ date: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const AKASHI_CID = "e85e40ac-71f7-4918-b2fc-36d877337b74";
 
   // ── データ取得 ──────────────────────────
   const fetchData = useCallback(async () => {
@@ -389,6 +393,22 @@ export default function CalendarTab({ employee }: { employee: any }) {
       }));
 
     setAttEvents(mapped);
+
+    // ダイハツ明石西: 定休日データ取得
+    if (employee.company_id === AKASHI_CID) {
+      const { data: holData } = await supabase.from("holiday_calendars")
+        .select("holiday_date, calendar_type")
+        .eq("company_id", AKASHI_CID)
+        .in("calendar_type", ["akashi_seishain_a", "akashi_lab"])
+        .gte("holiday_date", monthStart).lte("holiday_date", monthEnd);
+      setHolidayDates((holData || []).map((h: any) => ({
+        date: h.holiday_date,
+        label: h.calendar_type === "akashi_lab" ? "ラボ定休日" : "店舗定休日",
+      })));
+    } else {
+      setHolidayDates([]);
+    }
+
     setLoading(false);
   }, [yr, mo, employee?.company_id]);
 
@@ -612,6 +632,19 @@ export default function CalendarTab({ employee }: { employee: any }) {
                   {/* バッジエリア */}
                   {c.cur && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                      {/* 定休日バッジ（ダイハツ明石西のみ、先に表示） */}
+                      {(() => {
+                        const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(c.day).padStart(2, "0")}`;
+                        const hols = holidayDates.filter(h => h.date === dateStr);
+                        return hols.map((h, hi) => (
+                          <div key={`h${hi}`} style={{
+                            fontSize: isMobile ? 9 : 11, padding: isMobile ? "1px 3px" : "2px 4px",
+                            borderRadius: "3px", lineHeight: isMobile ? "12px" : "16px",
+                            backgroundColor: "#E5E7EB", color: "#6B7280",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>{h.label}</div>
+                        ));
+                      })()}
                       {/* 勤怠バッジ */}
                       {at.slice(0, maxBadges).map((a, j) => {
                         const isYukyu = a.reason.includes("有給");

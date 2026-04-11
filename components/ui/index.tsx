@@ -71,6 +71,7 @@ export const ReasonBadges = ({ reason }: ReasonBadgesProps) => {
         let textColor = (t.includes("希望休") || t.includes("公休（") || t.includes("午前公休") || t.includes("午後公休")) ? "#78350F" : "#fff";
         if (t === "公休") { bg = "#FEF9C3"; textColor = "#78350F"; }
         else if (t === "出勤") { bg = "#DCFCE7"; textColor = T.kinmuGreen; }
+        else if (t === "定休日" || t === "店舗定休日" || t === "ラボ定休日") { bg = "#E5E7EB"; textColor = "#6B7280"; }
         return (
           <Badge key={i} bg={bg} color={textColor}>
             {t}
