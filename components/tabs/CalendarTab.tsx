@@ -25,6 +25,7 @@ interface CustomEvent {
   creator_employee_id: string;
   creator_code: string | null;
   creator_name: string | null;
+  memo: string | null;
 }
 
 interface AttendanceEvent {
@@ -130,6 +131,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
     isEdit ? editEvent!.target_calendar : (defaultTargetCal && defaultTargetCal !== "all" ? defaultTargetCal : myCalGroup)
   );
   const [selectedColor, setSelectedColor] = useState<string>(isEdit ? editEvent!.color : PALETTE[0].h);
+  const [memo, setMemo] = useState(isEdit ? (editEvent!.memo || "") : "");
   const [saving, setSaving] = useState(false);
   const [dlg, setDlg] = useState<string | null>(null);
 
@@ -164,6 +166,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
         color: selectedColor,
         target_calendar: targetCalendar,
         repeat_type: repeatType,
+        memo: memo.trim() || null,
       }).eq("id", editEvent!.id);
       setSaving(false);
       if (error) { setDlg("更新に失敗しました: " + error.message); return; }
@@ -182,6 +185,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
         color: selectedColor,
         target_calendar: targetCalendar,
         repeat_type: repeatType,
+        memo: memo.trim() || null,
       });
       setSaving(false);
       if (error) { setDlg("登録に失敗しました: " + error.message); return; }
@@ -299,6 +303,12 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
           </div>
         </div>
 
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, color: T.textSec, display: "block", marginBottom: 4 }}>メモ</label>
+          <textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="WEB会議URLや予定の詳細など"
+            style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: `1px solid ${T.border}`, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box", fontFamily: "inherit" }} />
+        </div>
+
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 14, cursor: "pointer" }}>閉じる</button>
           <button onClick={handleSave} disabled={saving}
@@ -366,7 +376,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
 
     const { data: evData } = await supabase
       .from("custom_events")
-      .select("id, title, start_date, end_date, is_all_day, start_time, end_time, color, target_calendar, repeat_type, creator_employee_id, creator_code, creator_name")
+      .select("id, title, start_date, end_date, is_all_day, start_time, end_time, color, target_calendar, repeat_type, creator_employee_id, creator_code, creator_name, memo")
       .eq("company_id", employee.company_id)
       .or(`and(start_date.lte.${monthEnd},end_date.gte.${monthStart}),repeat_type.neq.none`);
 
@@ -519,7 +529,12 @@ export default function CalendarTab({ employee }: { employee: any }) {
         {selCustom.length > 0 && (
           <div>
             <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6, fontWeight: 600 }}>カスタム予定</div>
-            {selCustom.map((e) => (
+            {[...selCustom].sort((a, b) => {
+              if (a.is_all_day && !b.is_all_day) return -1;
+              if (!a.is_all_day && b.is_all_day) return 1;
+              if (!a.is_all_day && !b.is_all_day) return (a.start_time || "").localeCompare(b.start_time || "");
+              return 0;
+            }).map((e) => (
               <div key={e.id} onClick={() => { if (canDelete(e.creator_employee_id)) { setEditTarget(e); setModal(true); } }} style={{ padding: "7px 0", borderBottom: `1px solid ${T.borderLight}`, cursor: canDelete(e.creator_employee_id) ? "pointer" : "default", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: e.color, flexShrink: 0 }} />
@@ -534,6 +549,10 @@ export default function CalendarTab({ employee }: { employee: any }) {
                   {e.is_all_day ? "終日" : `${e.start_time?.slice(0, 5) || ""} 〜 ${e.end_time?.slice(0, 5) || ""}`}
                   {" ・ "}{e.creator_name || "不明"}
                 </div>
+                {e.memo && (
+                  <div style={{ fontSize: 11, color: T.textSec, marginLeft: 14, marginTop: 3, whiteSpace: "pre-wrap", wordBreak: "break-all" }}
+                    dangerouslySetInnerHTML={{ __html: e.memo.replace(/https?:\/\/[^\s]+/g, (url: string) => `<a href="${url}" target="_blank" rel="noopener" style="color:#2563EB">${url}</a>`) }} />
+                )}
                 {canDelete(e.creator_employee_id) && (
                   <button onClick={(ev) => { ev.stopPropagation(); handleDelete(e.id); }}
                     style={{ fontSize: 11, color: T.danger, background: "none", border: "none", cursor: "pointer", padding: "4px 0 0 14px" }}>
