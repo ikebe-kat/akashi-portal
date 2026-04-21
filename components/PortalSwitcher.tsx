@@ -124,7 +124,6 @@ export default function PortalSwitcher({ employee }: { employee: any }) {
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          paddingTop: 0,
           gap: 8,
           zIndex: 200,
         }}
