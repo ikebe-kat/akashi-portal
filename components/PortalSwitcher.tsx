@@ -21,11 +21,10 @@ const PORTAL_DEFS: Omit<PortalItem, "current">[] = [
 ];
 
 const ACCESS_MAP: Record<string, string[]> = {
-  "002": ["kat", "akashi", "wc", "dashboard"],
-  "067": ["kat", "akashi", "wc", "dashboard"],
-  "018": ["kat", "akashi", "wc"],
-  "049": ["kat", "akashi", "wc"],
-  "003": ["kat", "dashboard"],
+  "D02": ["kat", "akashi", "wc", "dashboard"],
+  "D67": ["kat", "akashi", "wc", "dashboard"],
+  "D18": ["kat", "akashi", "wc"],
+  "D49": ["kat", "akashi", "wc"],
 };
 
 function getPortals(employeeCode: string): PortalItem[] | null {
