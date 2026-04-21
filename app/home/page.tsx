@@ -150,7 +150,7 @@ export default function HomePage() {
 
   const handleLogout = () => {
     const emp = JSON.parse(localStorage.getItem("employee") || "{}");
-    localStorage.removeItem("employee"); if (emp.portal_group_id) { window.location.href = "https://kat-kintai-app.vercel.app/"; } else { router.push("/"); }
+    localStorage.removeItem("employee"); if (emp.portal_group_id) { window.location.href = "https://kat-kintai-app.vercel.app/?logout=true"; } else { router.push("/"); }
   };
 
   if (!employee) return null;
@@ -199,7 +199,6 @@ export default function HomePage() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{employee.full_name}</span>
-          {employee.portal_group_id && <button onClick={() => { localStorage.removeItem("employee"); window.location.href = "https://kat-kintai-app.vercel.app/portal"; }} style={{ padding: "4px 12px", borderRadius: "4px", border: "1px solid #06b6d4", backgroundColor: "#fff", color: "#06b6d4", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>会社切替</button>}
           <button
             onClick={handleLogout}
             style={{
