@@ -12,6 +12,7 @@ import RosterTab     from "@/components/tabs/RosterTab";
 import DocumentsTab  from "@/components/tabs/DocumentsTab";
 import AdminTab      from "@/components/tabs/AdminTab";
 import PushPermission from "@/components/PushPermission";
+import PortalSwitcher from "@/components/PortalSwitcher";
 
 type TabId = "punch" | "attendance" | "calendar" | "roster" | "documents" | "admin";
 
@@ -246,6 +247,7 @@ export default function HomePage() {
       </main>
 
       <PushPermission employeeId={employee.id} />
+      <PortalSwitcher employee={employee} />
     </div>
   );
 }
