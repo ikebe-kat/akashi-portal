@@ -23,7 +23,7 @@ const PORTAL_DEFS: Omit<PortalItem, "current">[] = [
 const ACCESS_MAP: Record<string, string[]> = {
   "D02": ["kat", "akashi", "wc", "dashboard"],
   "D67": ["kat", "akashi", "wc", "dashboard"],
-  "D18": ["kat", "akashi", "wc"],
+  "D18": ["kat", "akashi"],
   "D49": ["kat", "akashi", "wc"],
 };
 
