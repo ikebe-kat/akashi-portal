@@ -15,8 +15,8 @@ type PortalItem = {
 
 const PORTAL_DEFS: Omit<PortalItem, "current">[] = [
   { key: "kat", label: "KAT WORLD", shortLabel: "KAT", logo: "/KAT_logo_-05.png", url: "https://kat-kintai-app.vercel.app", companyId: "a653846d-3add-47ab-beb8-230a97f2c53e", color: "#06b6d4" },
-  { key: "akashi", label: "ダイハツ明石西", shortLabel: "明石", logo: "/daihatsu_logo.png", url: "/home", companyId: "e85e40ac-71f7-4918-b2fc-36d877337b74", color: "#e96d96" },
-  { key: "wc", label: "ワールドクラブ", shortLabel: "WC", logo: "/worldclub-logo.png", url: "https://worldclub-portal.vercel.app", companyId: "c2d368f0-aa9b-4f70-b082-43ec07723d6c", color: "#1a4b24" },
+  { key: "akashi", label: "ダイハツ明石西", shortLabel: "明石", logo: "/daihatsu_logo.png", url: "https://kat-kintai-app.vercel.app", companyId: "e85e40ac-71f7-4918-b2fc-36d877337b74", color: "#e96d96" },
+  { key: "wc", label: "ワールドクラブ", shortLabel: "WC", logo: "/worldclub-logo.png", url: "https://kat-kintai-app.vercel.app", companyId: "c2d368f0-aa9b-4f70-b082-43ec07723d6c", color: "#1a4b24" },
   { key: "dashboard", label: "実績管理", shortLabel: "実績", logo: "/icons/dashboard.png", url: "https://kat-dashboard-app.vercel.app/dashboard", companyId: null, color: "#f59e0b" },
 ];
 
