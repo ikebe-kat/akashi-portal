@@ -262,9 +262,9 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
     setSaving(true);
     const toRaw = (time: string | null, dateStr: string) => {
       if (!time) return null;
+      // JST(+09:00) 表記でそのまま送る。UTCに自前変換すると日付跨ぎで前後日にズレる。
       const [hh, mm] = time.split(":");
-      const utcH = parseInt(hh) - 9;
-      return `${dateStr}T${String(utcH < 0 ? utcH + 24 : utcH).padStart(2,"0")}:${mm}:00+00`;
+      return `${dateStr}T${hh}:${mm}:00+09:00`;
     };
     if (punchIn && punchOut && punchOut <= punchIn) {
       alert("退勤時刻が出勤時刻より前です");

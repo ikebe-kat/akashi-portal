@@ -330,10 +330,11 @@ export default function AttendanceTab({ employee }: { employee: any }) {
 
     if (daikyuMode === "half" && !daikyuHalf) { showAlert("午前か午後を選択してください"); return; }
 
-    /* 有給残チェック */
+    /* 有給残チェック（期限切れは除外） */
     const yukyuDays = selZenjitsu === "有給（全日）" ? 1 : (selGozen === "午前有給" ? 0.5 : 0) + (selGogo === "午後有給" ? 0.5 : 0);
     if (yukyuDays > 0) {
-      const { data: grants } = await supabase.from("paid_leave_grants").select("remaining_days").eq("employee_id", employee.id).gt("remaining_days", 0).order("expiry_date", { ascending: true });
+      const today = toDateStr(new Date());
+      const { data: grants } = await supabase.from("paid_leave_grants").select("remaining_days").eq("employee_id", employee.id).gt("remaining_days", 0).gte("expiry_date", today).order("expiry_date", { ascending: true });
       const totalRemaining = (grants || []).reduce((s: number, g: any) => s + Number(g.remaining_days), 0);
       if (totalRemaining < yukyuDays) { showAlert(`有給残が不足しています（残: ${totalRemaining}日）`); return; }
     }

@@ -117,9 +117,10 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     const yukyuDays = req.reason?.includes("有給（全日）") ? 1 : req.reason?.includes("午前有給") || req.reason?.includes("午後有給") ? 0.5 : 0;
     if (yukyuDays > 0) {
       const isAkashi = employee?.company_id === AKASHI_COMPANY_ID;
+      const today = new Date().toISOString().slice(0, 10);
       const { data: grants } = await supabase.from("paid_leave_grants")
         .select("id, remaining_days").eq("employee_id", req.employee_id)
-        .gt("remaining_days", 0).order("expiry_date", { ascending: !isAkashi });
+        .gt("remaining_days", 0).gte("expiry_date", today).order("expiry_date", { ascending: !isAkashi });
       let remaining = yukyuDays;
       for (const g of (grants || [])) {
         if (remaining <= 0) break;
