@@ -307,10 +307,11 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         employee_note: whereText, updated_at: new Date().toISOString(),
       });
     }
-    const { error } = await supabase.from("attendance_daily").upsert(upserts, { onConflict: "employee_id,attendance_date" });
+    const { data: ups, error } = await supabase.from("attendance_daily").upsert(upserts, { onConflict: "employee_id,attendance_date" }).select("id");
     setSaving(false);
-    if (!error) { setModalDay(null); loadData(); }
-    else { showAlert("登録に失敗しました: " + error.message); }
+    if (error) { console.error("出張バッチ upsert err:", error); showAlert("登録に失敗しました: " + error.message); return; }
+    if (!ups || ups.length === 0) { console.error("出張バッチ 0 rows (RLS?)"); showAlert("登録が保存できませんでした（権限設定の可能性）。管理者に連絡してください"); return; }
+    setModalDay(null); loadData();
   };
 
   /* ── 事由登録 ── */
@@ -430,18 +431,18 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     if (!modalDay) return;
     showConfirm("この日の事由を取り消しますか？", async () => {
       setSaving(true);
-      const { error } = await supabase.from("attendance_daily")
+      const { data: upd, error } = await supabase.from("attendance_daily")
         .update({ reason: null, employee_note: null, updated_at: new Date().toISOString() })
-        .eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr);
+        .eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr)
+        .select("id");
       setSaving(false);
-      if (!error) {
-        setModalDay(null); loadData();
-        if (modalDay.reason && (modalDay.reason.includes("有給") || modalDay.reason.includes("選択休") || modalDay.reason.includes("代休") || modalDay.reason.includes("出張"))) {
-          const storeName = employee.store_name || "";
-          notifyPush("attendance_reason_cleared", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, old_reason: modalDay.reason, attendance_date: modalDay.dateStr, store_name: storeName });
-        }
+      if (error) { console.error("事由取消 err:", error); showAlert("取消に失敗しました: " + error.message); return; }
+      if (!upd || upd.length === 0) { console.error("事由取消 0 rows (RLS or no record)"); showAlert("取消対象が見つかりませんでした（既に消えている可能性、または権限設定の可能性）"); return; }
+      setModalDay(null); loadData();
+      if (modalDay.reason && (modalDay.reason.includes("有給") || modalDay.reason.includes("選択休") || modalDay.reason.includes("代休") || modalDay.reason.includes("出張"))) {
+        const storeName = employee.store_name || "";
+        notifyPush("attendance_reason_cleared", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, old_reason: modalDay.reason, attendance_date: modalDay.dateStr, store_name: storeName });
       }
-      else { showAlert("取消に失敗しました: " + error.message); }
     }, "取消", "#DC2626");
   };
 
@@ -454,7 +455,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     const dow = DOW[new Date(modalDay.dateStr + "T00:00:00").getDay()];
 
     // leave_requestsに登録
-    const { error: lrErr } = await supabase.from("leave_requests").insert({
+    const { data: lrIns, error: lrErr } = await supabase.from("leave_requests").insert({
       company_id: employee.company_id,
       employee_id: employee.id,
       store_id: employee.store_id,
@@ -462,21 +463,23 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       type: shiftType,
       status: "approved",
       reason: reasonText,
-    });
-    if (lrErr) { setSaving(false); showAlert("登録に失敗しました: " + lrErr.message); return; }
+    }).select("id");
+    if (lrErr) { setSaving(false); console.error("submitShift leave_requests err:", lrErr); showAlert("登録に失敗しました: " + lrErr.message); return; }
+    if (!lrIns || lrIns.length === 0) { setSaving(false); console.error("submitShift leave_requests 0 rows (RLS?)"); showAlert("登録が保存できませんでした（権限設定の可能性）。管理者に連絡してください"); return; }
 
     // attendance_dailyにもupsert（出勤簿・カレンダーに表示するため）
-    const { error: attErr } = await supabase.from("attendance_daily").upsert({
+    const { data: attUp, error: attErr } = await supabase.from("attendance_daily").upsert({
       company_id: employee.company_id,
       employee_id: employee.id,
       attendance_date: modalDay.dateStr,
       day_of_week: dow,
       reason: reasonText,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "employee_id,attendance_date" });
+    }, { onConflict: "employee_id,attendance_date" }).select("id");
 
     setSaving(false);
-    if (attErr) { showAlert("出勤簿への登録に失敗しました。管理者に連絡してください。"); loadData(); return; }
+    if (attErr) { console.error("submitShift attendance_daily err:", attErr); showAlert("出勤簿への登録に失敗しました。管理者に連絡してください: " + attErr.message); loadData(); return; }
+    if (!attUp || attUp.length === 0) { console.error("submitShift attendance_daily 0 rows (RLS?)"); showAlert("出勤簿への登録が保存できませんでした（権限設定の可能性）。管理者に連絡してください"); loadData(); return; }
     setModalDay(null); loadData();
   };
 
@@ -488,8 +491,9 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     setSaving(true);
 
     // leave_requestsから削除
-    const { error } = await supabase.from("leave_requests").delete().eq("id", req.id);
-    if (error) { setSaving(false); showAlert("取消に失敗しました: " + error.message); return; }
+    const { data: del, error } = await supabase.from("leave_requests").delete().eq("id", req.id).select("id");
+    if (error) { setSaving(false); console.error("cancelShift delete err:", error); showAlert("取消に失敗しました: " + error.message); return; }
+    if (!del || del.length === 0) { setSaving(false); console.error("cancelShift delete 0 rows (RLS?)"); showAlert("シフトを削除できませんでした（権限設定の可能性）"); return; }
 
     // attendance_dailyのreasonもクリア
     const { error: attErr } = await supabase.from("attendance_daily")
@@ -608,10 +612,11 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                   <button onClick={() => {
                     showConfirm("この有給申請を取り下げますか？", async () => {
                       setSaving(true);
-                      const { error } = await supabase.from("leave_requests").delete().eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr).eq("status", "申請中");
+                      const { data: del, error } = await supabase.from("leave_requests").delete().eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr).eq("status", "申請中").select("id");
                       setSaving(false);
-                      if (!error) { setModalDay(null); loadData(); }
-                      else { showAlert("取り下げに失敗しました: " + error.message); }
+                      if (error) { console.error("取り下げ err:", error); showAlert("取り下げに失敗しました: " + error.message); return; }
+                      if (!del || del.length === 0) { console.error("取り下げ 0 rows"); showAlert("取り下げ対象が見つかりませんでした（既に処理済みの可能性、または権限設定の可能性）"); return; }
+                      setModalDay(null); loadData();
                     }, "取り下げ", "#DC2626");
                   }} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: "6px", border: "1px solid #DC2626", backgroundColor: "#fff", color: "#DC2626", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{saving ? "処理中..." : "申請を取り下げる"}</button>
                   )}

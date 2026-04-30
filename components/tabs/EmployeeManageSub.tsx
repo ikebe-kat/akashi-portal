@@ -104,12 +104,14 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
     const pinValue = form.pin?.trim() || "1234";
     let targetEmpId: string | null = emp?.id || null;
     if (isNew) {
-      const { data: ins, error } = await supabase.from("employees").insert(payload).select("id").single();
-      if (error) { setSaving(false); onSaved("登録失敗: " + error.message); return; }
-      targetEmpId = ins?.id || null;
+      const { data: ins, error } = await supabase.from("employees").insert(payload).select("id").maybeSingle();
+      if (error) { setSaving(false); console.error("employees insert err:", error); onSaved("登録失敗: " + error.message); return; }
+      if (!ins?.id) { setSaving(false); console.error("employees insert 0 rows (RLS?)"); onSaved("登録が保存できませんでした（権限設定の可能性）"); return; }
+      targetEmpId = ins.id;
     } else {
-      const { error } = await supabase.from("employees").update(payload).eq("id", emp!.id);
-      if (error) { setSaving(false); onSaved("更新失敗: " + error.message); return; }
+      const { data: upd, error } = await supabase.from("employees").update(payload).eq("id", emp!.id).select("id");
+      if (error) { setSaving(false); console.error("employees update err:", error); onSaved("更新失敗: " + error.message); return; }
+      if (!upd || upd.length === 0) { setSaving(false); console.error("employees update 0 rows (RLS?)"); onSaved("更新が保存できませんでした（権限設定の可能性）"); return; }
     }
     // PIN を employee_pins に upsert
     if (targetEmpId && pinValue) {
@@ -175,9 +177,10 @@ const ResignModal = ({ emp, onClose, onSaved }: { emp: EmpRow; onClose: () => vo
   const [saving, setSaving] = useState(false);
   const handleResign = async () => {
     setSaving(true);
-    const { error } = await supabase.from("employees").update({ is_active: false, resigned_at: resignDate, updated_at: new Date().toISOString() }).eq("id", emp.id);
+    const { data: upd, error } = await supabase.from("employees").update({ is_active: false, resigned_at: resignDate, updated_at: new Date().toISOString() }).eq("id", emp.id).select("id");
     setSaving(false);
-    if (error) { onSaved("退職処理に失敗しました: " + error.message); return; }
+    if (error) { console.error("退職処理 err:", error); onSaved("退職処理に失敗しました: " + error.message); return; }
+    if (!upd || upd.length === 0) { console.error("退職処理 0 rows (RLS?)"); onSaved("退職処理が保存できませんでした（権限設定の可能性）"); return; }
     onSaved(`${emp.full_name}さんの退職処理が完了しました`); onClose();
   };
   return (

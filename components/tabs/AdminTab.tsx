@@ -607,13 +607,15 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
           employee_id: empId, company_id: employee.company_id,
           attendance_date: selectedDate, day_of_week: DOW[selDow],
           ...payload,
-        }, { onConflict: "employee_id,attendance_date" }));
+        }, { onConflict: "employee_id,attendance_date" }).select("id"));
       } else {
-        promises.push(supabase.from("attendance_daily").update(payload).eq("id", row.id));
+        promises.push(supabase.from("attendance_daily").update(payload).eq("id", row.id).select("id"));
       }
     }
-    await Promise.all(promises);
+    const results = await Promise.all(promises);
     setSaving(false);
+    const failed = results.filter((r: any) => r.error || !r.data || r.data.length === 0);
+    if (failed.length > 0) { console.error("一括編集 失敗:", failed); alert(`${failed.length}件の保存に失敗しました（権限設定の可能性）。コンソールを確認してください。`); }
     onSaved();
   };
 
@@ -774,23 +776,27 @@ const DailySub = ({ employee }: { employee: any }) => {
     const empObj = emps.find(e => e.code === editRow.emp_code);
     if (editRow.id.startsWith("empty-")) {
       const empId = empObj?.id || editRow.id.replace("empty-", "");
-      const { error } = await supabase.from("attendance_daily").upsert({
+      const { data: ups, error } = await supabase.from("attendance_daily").upsert({
         employee_id: empId, company_id: employee.company_id,
         attendance_date: selectedDate, day_of_week: DOW[selDow],
         punch_in: updated.punch_in, punch_out: updated.punch_out,
         punch_in_raw: updated.punch_in_raw, punch_out_raw: updated.punch_out_raw,
         reason: updated.reason, employee_note: updated.employee_note,
         admin_memo: updated.admin_memo, updated_at: new Date().toISOString(),
-      }, { onConflict: "employee_id,attendance_date" });
-      if (error) { setDialogMsg("保存に失敗しました"); } else { setDialogMsg("保存しました"); fetchDaily(); }
+      }, { onConflict: "employee_id,attendance_date" }).select("id");
+      if (error) { console.error("daily upsert err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
+      else if (!ups || ups.length === 0) { console.error("daily upsert 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
+      else { setDialogMsg("保存しました"); fetchDaily(); }
     } else {
-      const { error } = await supabase.from("attendance_daily").update({
+      const { data: upd, error } = await supabase.from("attendance_daily").update({
         punch_in: updated.punch_in, punch_out: updated.punch_out,
         punch_in_raw: updated.punch_in_raw, punch_out_raw: updated.punch_out_raw,
         reason: updated.reason, employee_note: updated.employee_note,
         admin_memo: updated.admin_memo, updated_at: new Date().toISOString(),
-      }).eq("id", editRow.id);
-      if (error) { setDialogMsg("保存に失敗しました"); } else { setDialogMsg("保存しました"); fetchDaily(); }
+      }).eq("id", editRow.id).select("id");
+      if (error) { console.error("daily update err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
+      else if (!upd || upd.length === 0) { console.error("daily update 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
+      else { setDialogMsg("保存しました"); fetchDaily(); }
     }
     setEditRow(null);
   };
@@ -1095,13 +1101,14 @@ const RequestsSub = ({ employee }: { employee: any }) => {
 
   const handleProcess = async (req: ChangeReq, newStatus: "承認" | "却下") => {
     setProcessing(req.id);
-    const { error } = await supabase.from("change_requests").update({
+    const { data: upd, error } = await supabase.from("change_requests").update({
       status: newStatus, reviewer_note: reviewNotes[req.id] || null,
       reviewed_by: employee.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-    }).eq("id", req.id);
+    }).eq("id", req.id).select("id");
     setProcessing(null);
-    if (error) { setDialogState({ message: "処理に失敗しました", mode: "alert", onOk: () => setDialogState(null) }); }
-    else { fetchRequests(); }
+    if (error) { console.error("change_requests update err:", error); setDialogState({ message: "処理に失敗しました: " + error.message, mode: "alert", onOk: () => setDialogState(null) }); return; }
+    if (!upd || upd.length === 0) { console.error("change_requests update 0 rows (RLS?)"); setDialogState({ message: "処理が保存できませんでした（権限設定の可能性）", mode: "alert", onOk: () => setDialogState(null) }); return; }
+    fetchRequests();
   };
 
   const confirmProcess = (req: ChangeReq, newStatus: "承認" | "却下") => {
@@ -1233,11 +1240,13 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
     const fileUrl = urlData?.publicUrl || "";
     if (targetType === "all") {
       const inserts = emps.map(e => ({ company_id: employee.company_id, employee_id: e.id, document_name: docName, category: docCategory, file_url: fileUrl, upload_date: new Date().toISOString(), uploader: employee.full_name }));
-      const { error } = await supabase.from("documents").insert(inserts);
-      if (error) { setUploading(false); setDialogMsg("配布に失敗しました: " + error.message); return; }
+      const { data: ins, error } = await supabase.from("documents").insert(inserts).select("id");
+      if (error) { setUploading(false); console.error("documents insert all err:", error); setDialogMsg("配布に失敗しました: " + error.message); return; }
+      if (!ins || ins.length === 0) { setUploading(false); console.error("documents insert all 0 rows (RLS?)"); setDialogMsg("配布が保存できませんでした（権限設定の可能性）。管理者に連絡してください"); return; }
     } else {
-      const { error } = await supabase.from("documents").insert({ company_id: employee.company_id, employee_id: targetEmpId, document_name: docName, category: docCategory, file_url: fileUrl, upload_date: new Date().toISOString(), uploader: employee.full_name });
-      if (error) { setUploading(false); setDialogMsg("配布に失敗しました: " + error.message); return; }
+      const { data: ins, error } = await supabase.from("documents").insert({ company_id: employee.company_id, employee_id: targetEmpId, document_name: docName, category: docCategory, file_url: fileUrl, upload_date: new Date().toISOString(), uploader: employee.full_name }).select("id");
+      if (error) { setUploading(false); console.error("documents insert one err:", error); setDialogMsg("配布に失敗しました: " + error.message); return; }
+      if (!ins || ins.length === 0) { setUploading(false); console.error("documents insert one 0 rows (RLS?)"); setDialogMsg("配布が保存できませんでした（権限設定の可能性）。管理者に連絡してください"); return; }
     }
     setUploading(false);
     setDialogMsg("配布しました");
