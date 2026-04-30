@@ -26,20 +26,34 @@ export default function LoginPage() {
     setChecking(false)
   }, [])
 
+  // employees + stores（pin は employee_pins から別取得）
+  const EMP_COLS = 'id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)'
+
+  // pin 取得：employee_pins.pin → だめなら employees.pin にフォールバック
+  const fetchPin = async (employeeId: string): Promise<string | null> => {
+    const { data: pinRow } = await supabase
+      .from('employee_pins').select('pin').eq('employee_id', employeeId).maybeSingle()
+    if (pinRow?.pin != null) return pinRow.pin as string
+    const { data: legacy } = await supabase
+      .from('employees').select('pin').eq('id', employeeId).maybeSingle()
+    return (legacy as any)?.pin ?? null
+  }
+
+  const finishLogin = async (data: any) => {
+    const dbPin = await fetchPin(data.id)
+    const empData = { ...data, store_name: (data as any).stores?.store_name || '', pin: dbPin }
+    delete (empData as any).stores
+    localStorage.setItem('employee', JSON.stringify(empData))
+  }
+
   const autoLogin = async (pgId: string) => {
-    const { data } = await supabase
-      .from('employees')
-      .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, pin, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)')
-      .eq('portal_group_id', pgId)
-      .eq('company_id', AKASHI_COMPANY_ID)
-      .maybeSingle()
-    if (data) {
-      const empData = { ...data, store_name: (data as any).stores?.store_name || '' }; delete (empData as any).stores; localStorage.setItem('employee', JSON.stringify(empData))
-      window.history.replaceState({}, '', '/');
-      router.push('/home')
-    } else {
-      setChecking(false)
-    }
+    const { data, error } = await supabase
+      .from('employees').select(EMP_COLS)
+      .eq('portal_group_id', pgId).eq('company_id', AKASHI_COMPANY_ID).maybeSingle()
+    if (error || !data) { setChecking(false); return }
+    await finishLogin(data)
+    window.history.replaceState({}, '', '/')
+    router.push('/home')
   }
 
   const handleLogin = async () => {
@@ -47,21 +61,26 @@ export default function LoginPage() {
     setLoading(true)
     const code = employeeCode.toUpperCase().trim()
     const { data, error: dbError } = await supabase
-      .from('employees')
-      .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, pin, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, employment_type, stores(store_name)')
-      .eq('employee_code', code)
-      .eq('company_id', AKASHI_COMPANY_ID)
-      .maybeSingle()
-    setLoading(false)
-    if (dbError || !data) {
+      .from('employees').select(EMP_COLS)
+      .eq('employee_code', code).eq('company_id', AKASHI_COMPANY_ID).maybeSingle()
+    if (dbError) {
+      setLoading(false)
+      console.error('employees select error:', dbError)
+      setError('ログインに失敗しました（' + dbError.message + '）')
+      return
+    }
+    if (!data) {
+      setLoading(false)
       setError('社員CDが見つかりません')
       return
     }
-    if (data.pin !== pin) {
-      setError('PINが正しくありません')
-      return
-    }
-    const empData = { ...data, store_name: (data as any).stores?.store_name || '' }; delete (empData as any).stores; localStorage.setItem('employee', JSON.stringify(empData))
+    const dbPin = await fetchPin(data.id)
+    setLoading(false)
+    if (dbPin == null) { setError('PINが登録されていません。管理者に連絡してください'); return }
+    if (dbPin !== pin) { setError('PINが正しくありません'); return }
+    const empData = { ...data, store_name: (data as any).stores?.store_name || '', pin: dbPin }
+    delete (empData as any).stores
+    localStorage.setItem('employee', JSON.stringify(empData))
     router.push('/home')
   }
 
