@@ -372,7 +372,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         approverId = da01?.id || null;
       }
       setSaving(true);
-      const { error } = await supabase.from("leave_requests").insert({
+      // .select() で挿入行を返してもらい、RLSで黙って0行になるパターンを検知
+      const { data: inserted, error } = await supabase.from("leave_requests").insert({
         company_id: employee.company_id,
         employee_id: employee.id,
         attendance_date: modalDay.dateStr,
@@ -380,31 +381,48 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         request_comment: requestComment.trim(),
         approver_id: approverId,
         status: "申請中",
-      });
+      }).select();
       setSaving(false);
-      if (!error) {
-        setModalDay(null); loadData();
-        const notifyCodes = myCode === "DA001" || myCode === "DA002" ? ["D18", "D67"] : [storeName.includes("大久保") ? "DA002" : "DA001", "D18", "D67"];
-        const uniqueCodes = [...new Set(notifyCodes)];
-        notifyPush("leave_request_new", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName, notify_codes: uniqueCodes });
-      } else { showAlert("申請に失敗しました: " + error.message); }
+      if (error) {
+        console.error("leave_requests insert error:", error);
+        showAlert("申請に失敗しました: " + error.message);
+        return;
+      }
+      if (!inserted || inserted.length === 0) {
+        console.error("leave_requests insert returned 0 rows (RLS?):", { employee_id: employee.id, company_id: employee.company_id });
+        showAlert("申請が保存できませんでした。権限設定（RLS）の可能性があります。管理者に連絡してください。");
+        return;
+      }
+      setModalDay(null); loadData();
+      const notifyCodes = myCode === "DA001" || myCode === "DA002" ? ["D18", "D67"] : [storeName.includes("大久保") ? "DA002" : "DA001", "D18", "D67"];
+      const uniqueCodes = [...new Set(notifyCodes)];
+      notifyPush("leave_request_new", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName, notify_codes: uniqueCodes });
+      showAlert("有給申請を送信しました");
       return;
     }
     setSaving(true);
-    const { error } = await supabase.from("attendance_daily").upsert({
+    // upsert もサイレント0件を検知できるように .select() を付ける
+    const { data: upserted, error } = await supabase.from("attendance_daily").upsert({
       employee_id: employee.id, company_id: employee.company_id,
       attendance_date: modalDay.dateStr, day_of_week: DOW[modalDay.dow],
       reason: previewReason, employee_note: note || null, updated_at: new Date().toISOString(),
-    }, { onConflict: "employee_id,attendance_date" });
+    }, { onConflict: "employee_id,attendance_date" }).select();
     setSaving(false);
-    if (!error) {
-      setModalDay(null); loadData();
-      if (previewReason && (previewReason.includes("選択休") || previewReason.includes("代休") || previewReason.includes("出張"))) {
-        const storeName = employee.store_name || "";
-        notifyPush("attendance_reason_set", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName });
-      }
+    if (error) {
+      console.error("attendance_daily upsert error:", error);
+      showAlert("登録に失敗しました: " + error.message);
+      return;
     }
-    else { showAlert("登録に失敗しました: " + error.message); }
+    if (!upserted || upserted.length === 0) {
+      console.error("attendance_daily upsert returned 0 rows (RLS?):", { employee_id: employee.id, attendance_date: modalDay.dateStr });
+      showAlert("登録が保存できませんでした。権限設定（RLS）の可能性があります。管理者に連絡してください。");
+      return;
+    }
+    setModalDay(null); loadData();
+    if (previewReason && (previewReason.includes("選択休") || previewReason.includes("代休") || previewReason.includes("出張"))) {
+      const storeName = employee.store_name || "";
+      notifyPush("attendance_reason_set", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName });
+    }
   };
 
   /* ── 事由取消 ── */
