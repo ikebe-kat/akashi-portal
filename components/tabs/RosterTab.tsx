@@ -181,17 +181,18 @@ const ChangeRequestModal = ({ employeeId, companyId, onClose, onSuccess }: Chang
     }
 
     // change_requestsに保存
-    const { error: insertErr } = await supabase.from("change_requests").insert({
+    const { data: ins, error: insertErr } = await supabase.from("change_requests").insert({
       company_id: companyId,
       employee_id: employeeId,
       category,
       detail: detail.trim(),
       file_url: fileUrl,
       status: "未処理",
-    });
+    }).select("id");
     setSaving(false);
 
-    if (insertErr) { setError("申請の送信に失敗しました"); return; }
+    if (insertErr) { console.error("change_requests insert err:", insertErr); setError("申請の送信に失敗しました: " + insertErr.message); return; }
+    if (!ins || ins.length === 0) { console.error("change_requests insert 0 rows (RLS?)"); setError("申請を保存できませんでした（権限設定の可能性）"); return; }
     onSuccess();
   };
 
@@ -292,10 +293,11 @@ const ProfileModal = ({ emp, viewerPerm, viewerCode, isSelf, companyId, onClose,
 
   const handleSkillsSave = async () => {
     setSkillsSaving(true);
-    const { error } = await supabase
-      .from("employees").update({ skills: skillsText.trim() || null }).eq("id", emp.id);
+    const { data: upd, error } = await supabase
+      .from("employees").update({ skills: skillsText.trim() || null }).eq("id", emp.id).select("id");
     setSkillsSaving(false);
-    if (error) { setSkillsMsg("保存に失敗しました"); return; }
+    if (error) { console.error("skills update err:", error); setSkillsMsg("保存に失敗しました: " + error.message); return; }
+    if (!upd || upd.length === 0) { console.error("skills update 0 rows (RLS?)"); setSkillsMsg("保存できませんでした（権限設定の可能性）"); return; }
     setEditingSkills(false);
     setDialogMsg("保有資格を保存しました");
     onRefresh();

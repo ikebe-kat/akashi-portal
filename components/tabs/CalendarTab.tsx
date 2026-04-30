@@ -642,8 +642,9 @@ export default function CalendarTab({ employee }: { employee: any }) {
       mode: "confirm",
       onOk: async () => {
         setCalDialog(null);
-        const { error } = await supabase.from("custom_events").delete().eq("id", eventId);
-        if (error) { setCalDialog({ message: "削除に失敗しました: " + error.message, mode: "alert", onOk: () => setCalDialog(null) }); return; }
+        const { data: del, error } = await supabase.from("custom_events").delete().eq("id", eventId).select("id");
+        if (error) { console.error("custom_events delete err:", error); setCalDialog({ message: "削除に失敗しました: " + error.message, mode: "alert", onOk: () => setCalDialog(null) }); return; }
+        if (!del || del.length === 0) { console.error("custom_events delete 0 rows (RLS?)"); setCalDialog({ message: "削除対象が見つかりませんでした（権限設定の可能性）", mode: "alert", onOk: () => setCalDialog(null) }); return; }
         // 削除通知
         if (ev) {
           notifyPush("calendar_event", { action: "deleted", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: ev.title, start_date: ev.start_date, target_calendar: ev.target_calendar } });

@@ -44,10 +44,11 @@ export default function DocumentsTab({ employee }: { employee: any }) {
   const handleDownload = async (doc: DocRecord) => {
     // confirmed_atが未設定なら更新（初回DLで確認済み）
     if (!doc.confirmed_at) {
-      await supabase
+      const { error } = await supabase
         .from("documents")
         .update({ confirmed_at: new Date().toISOString() })
         .eq("id", doc.id);
+      if (error) console.error("documents confirmed_at update err:", error);
     }
 
     // ファイルURLがあれば開く

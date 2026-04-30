@@ -393,6 +393,7 @@ async function fetchExistingPayroll(yearMonth: string) {
 // ============================================
 export async function savePayrollResults(results: PayrollResult[], yearMonth: string): Promise<void> {
   const [y, m] = yearMonth.split('-').map(Number);
+  // 削除は対象が0行でも問題ない（初回計算のケースが該当）。エラーのみ検知。
   const { error: deleteError } = await supabase.from('payroll_monthly').delete()
     .eq('company_id', AKASHI_COMPANY_ID).eq('target_year', y).eq('target_month', m);
   if (deleteError) throw new Error(`既存データ削除エラー: ${deleteError.message}`);
@@ -411,6 +412,9 @@ export async function savePayrollResults(results: PayrollResult[], yearMonth: st
     calculated_at: new Date().toISOString(),
   }));
 
-  const { error: insertError } = await supabase.from('payroll_monthly').insert(rows);
+  if (rows.length === 0) return;
+  const { data: ins, error: insertError } = await supabase.from('payroll_monthly').insert(rows).select('id');
   if (insertError) throw new Error(`給与データ保存エラー: ${insertError.message}`);
+  if (!ins || ins.length === 0) throw new Error('給与データを保存できませんでした（権限設定の可能性）');
+  if (ins.length !== rows.length) console.warn(`給与データ保存: ${ins.length}/${rows.length} 行のみ反映（残りはRLS等で除外）`);
 }

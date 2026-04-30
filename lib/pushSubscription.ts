@@ -37,7 +37,7 @@ export async function registerAndSubscribe(employeeId: string): Promise<boolean>
 
     // Supabaseに保存
     const subJson = subscription.toJSON();
-    const { error } = await supabase.from("push_subscriptions").upsert(
+    const { data: ups, error } = await supabase.from("push_subscriptions").upsert(
       {
         employee_id: employeeId,
         endpoint: subJson.endpoint,
@@ -46,10 +46,14 @@ export async function registerAndSubscribe(employeeId: string): Promise<boolean>
         updated_at: new Date().toISOString(),
       },
       { onConflict: "employee_id,endpoint" }
-    );
+    ).select("id");
 
     if (error) {
       console.error("Failed to save push subscription:", error);
+      return false;
+    }
+    if (!ups || ups.length === 0) {
+      console.error("push_subscriptions upsert 0 rows (RLS?). Push notifications will not work for this employee:", employeeId);
       return false;
     }
     return true;

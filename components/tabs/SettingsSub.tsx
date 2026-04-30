@@ -66,19 +66,23 @@ const HolidayCalendarSection = ({ employee }: { employee: any }) => {
     const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     setSaving(true);
     if (holidays.has(dateStr)) {
-      const { error } = await supabase
+      const { data: del, error } = await supabase
         .from("holiday_calendars")
         .delete()
         .eq("company_id", employee.company_id)
         .eq("calendar_type", calType)
-        .eq("holiday_date", dateStr);
-      if (error) { setDlg("削除に失敗: " + error.message); setSaving(false); return; }
+        .eq("holiday_date", dateStr)
+        .select("id");
+      if (error) { console.error("holiday_calendars delete err:", error); setDlg("削除に失敗: " + error.message); setSaving(false); return; }
+      if (!del || del.length === 0) { console.error("holiday_calendars delete 0 rows (RLS?)"); setDlg("削除できませんでした（権限設定の可能性）"); setSaving(false); return; }
       setHolidays(prev => { const next = new Set(prev); next.delete(dateStr); return next; });
     } else {
-      const { error } = await supabase
+      const { data: ins, error } = await supabase
         .from("holiday_calendars")
-        .insert({ company_id: employee.company_id, calendar_type: calType, holiday_date: dateStr });
-      if (error) { setDlg("追加に失敗: " + error.message); setSaving(false); return; }
+        .insert({ company_id: employee.company_id, calendar_type: calType, holiday_date: dateStr })
+        .select("id");
+      if (error) { console.error("holiday_calendars insert err:", error); setDlg("追加に失敗: " + error.message); setSaving(false); return; }
+      if (!ins || ins.length === 0) { console.error("holiday_calendars insert 0 rows (RLS?)"); setDlg("追加できませんでした（権限設定の可能性）"); setSaving(false); return; }
       setHolidays(prev => { const next = new Set(prev); next.add(dateStr); return next; });
     }
     setSaving(false);
@@ -225,12 +229,14 @@ const VariableHoursSection = ({ employee }: { employee: any }) => {
 
     if (upserts.length === 0) { setDlg("保存する値がありません"); setSaving(false); return; }
 
-    const { error } = await supabase
+    const { data: ups, error } = await supabase
       .from("variable_hours_settings")
-      .upsert(upserts, { onConflict: "company_id,calendar_type,year_month" });
+      .upsert(upserts, { onConflict: "company_id,calendar_type,year_month" })
+      .select("id");
 
     setSaving(false);
-    if (error) { setDlg("保存に失敗しました: " + error.message); return; }
+    if (error) { console.error("variable_hours_settings upsert err:", error); setDlg("保存に失敗しました: " + error.message); return; }
+    if (!ups || ups.length === 0) { console.error("variable_hours_settings upsert 0 rows (RLS?)"); setDlg("保存できませんでした（権限設定の可能性）"); return; }
     setDlg("保存しました");
   };
 

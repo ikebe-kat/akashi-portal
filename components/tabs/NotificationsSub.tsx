@@ -70,14 +70,16 @@ export default function NotificationsSub({ employee }: { employee: any }) {
   const unreadCount = useMemo(() => items.filter(n => !n.is_read).length, [items]);
 
   const markRead = async (id: string) => {
-    await supabase.from("admin_notifications").update({ is_read: true }).eq("id", id);
+    const { error } = await supabase.from("admin_notifications").update({ is_read: true }).eq("id", id);
+    if (error) { console.error("admin_notifications mark read err:", error); return; }
     setItems(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
   };
 
   const markAllRead = async () => {
     const unreadIds = items.filter(n => !n.is_read).map(n => n.id);
     if (unreadIds.length === 0) return;
-    await supabase.from("admin_notifications").update({ is_read: true }).in("id", unreadIds);
+    const { error } = await supabase.from("admin_notifications").update({ is_read: true }).in("id", unreadIds);
+    if (error) { console.error("admin_notifications mark all read err:", error); return; }
     setItems(prev => prev.map(n => ({ ...n, is_read: true })));
   };
 

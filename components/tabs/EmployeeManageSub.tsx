@@ -223,11 +223,25 @@ const DependentsPanel = ({ empId, companyId, onMsg }: { empId: string; companyId
   const handleSave = async () => {
     if (!form.name?.trim()) { onMsg("扶養者氏名を入力してください"); return; }
     const payload = { company_id: companyId, employee_id: empId, name: form.name.trim(), name_kana: form.name_kana?.trim() || null, birth_date: form.birth_date || null, relationship: form.relationship?.trim() || null, occupation: form.occupation?.trim() || null, estimated_income: form.estimated_income ? Number(form.estimated_income) : null, living_arrangement: form.living_arrangement?.trim() || null, insurance_card_requested: form.insurance_card_requested || false, my_number: form.my_number?.trim() || null, updated_at: new Date().toISOString() };
-    if (editDep) { const { error } = await supabase.from("dependents").update(payload).eq("id", editDep.id); if (error) { onMsg("更新失敗"); return; } }
-    else { const { error } = await supabase.from("dependents").insert(payload); if (error) { onMsg("登録失敗: " + error.message); return; } }
+    if (editDep) {
+      const { data: upd, error } = await supabase.from("dependents").update(payload).eq("id", editDep.id).select("id");
+      if (error) { console.error("dependents update err:", error); onMsg("更新失敗: " + error.message); return; }
+      if (!upd || upd.length === 0) { console.error("dependents update 0 rows (RLS?)"); onMsg("更新が保存できませんでした（権限設定の可能性）"); return; }
+    }
+    else {
+      const { data: ins, error } = await supabase.from("dependents").insert(payload).select("id");
+      if (error) { console.error("dependents insert err:", error); onMsg("登録失敗: " + error.message); return; }
+      if (!ins || ins.length === 0) { console.error("dependents insert 0 rows (RLS?)"); onMsg("登録が保存できませんでした（権限設定の可能性）"); return; }
+    }
     setShowForm(false); fetch(); onMsg(editDep ? "更新しました" : "追加しました");
   };
-  const handleDelete = async (d: DepRow) => { if (!confirm(`${d.name}を削除しますか？`)) return; await supabase.from("dependents").delete().eq("id", d.id); fetch(); onMsg("削除しました"); };
+  const handleDelete = async (d: DepRow) => {
+    if (!confirm(`${d.name}を削除しますか？`)) return;
+    const { data: del, error } = await supabase.from("dependents").delete().eq("id", d.id).select("id");
+    if (error) { console.error("dependents delete err:", error); onMsg("削除失敗: " + error.message); return; }
+    if (!del || del.length === 0) { console.error("dependents delete 0 rows (RLS?)"); onMsg("削除できませんでした（権限設定の可能性）"); return; }
+    fetch(); onMsg("削除しました");
+  };
 
   if (loading) return <div style={{ padding: 20, textAlign: "center", color: T.textMuted, fontSize: 13 }}>読み込み中...</div>;
   return (
@@ -296,12 +310,19 @@ const EmpDocsPanel = ({ empId, companyId, uploaderName, onMsg }: { empId: string
     const { error: upErr } = await supabase.storage.from("change-requests").upload(`employee-documents/${fileName}`, file);
     if (upErr) { setUploading(false); onMsg("アップロード失敗: " + upErr.message); return; }
     const { data: urlData } = supabase.storage.from("change-requests").getPublicUrl(`employee-documents/${fileName}`);
-    const { error } = await supabase.from("employee_documents").insert({ company_id: companyId, employee_id: empId, document_name: docName.trim(), category: docCategory, file_url: urlData?.publicUrl || "", uploader: uploaderName, memo: docMemo.trim() || null });
+    const { data: ins, error } = await supabase.from("employee_documents").insert({ company_id: companyId, employee_id: empId, document_name: docName.trim(), category: docCategory, file_url: urlData?.publicUrl || "", uploader: uploaderName, memo: docMemo.trim() || null }).select("id");
     setUploading(false);
-    if (error) { onMsg("登録失敗: " + error.message); return; }
+    if (error) { console.error("employee_documents insert err:", error); onMsg("登録失敗: " + error.message); return; }
+    if (!ins || ins.length === 0) { console.error("employee_documents insert 0 rows (RLS?)"); onMsg("登録が保存できませんでした（権限設定の可能性）"); return; }
     setShowForm(false); setDocName(""); setFile(null); setDocMemo(""); fetch(); onMsg("書類を登録しました");
   };
-  const handleDelete = async (d: EmpDocRow) => { if (!confirm(`「${d.document_name}」を削除しますか？`)) return; await supabase.from("employee_documents").delete().eq("id", d.id); fetch(); onMsg("削除しました"); };
+  const handleDelete = async (d: EmpDocRow) => {
+    if (!confirm(`「${d.document_name}」を削除しますか？`)) return;
+    const { data: del, error } = await supabase.from("employee_documents").delete().eq("id", d.id).select("id");
+    if (error) { console.error("employee_documents delete err:", error); onMsg("削除失敗: " + error.message); return; }
+    if (!del || del.length === 0) { console.error("employee_documents delete 0 rows (RLS?)"); onMsg("削除できませんでした（権限設定の可能性）"); return; }
+    fetch(); onMsg("削除しました");
+  };
   const fmtDate = (d: string) => { const dt = new Date(d); return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`; };
 
   if (loading) return <div style={{ padding: 20, textAlign: "center", color: T.textMuted, fontSize: 13 }}>読み込み中...</div>;
