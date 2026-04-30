@@ -252,13 +252,15 @@ export default function PayrollSub({ employee }: { employee: any }) {
             }
           }
         }
-        const { error: ue } = await supabase.from("payroll_monthly").update(uf).eq("id", r.id);
+        const { data: ur, error: ue } = await supabase.from("payroll_monthly").update(uf).eq("id", r.id).select("id");
         if (ue) throw ue;
+        if (!ur || ur.length === 0) { console.error("payroll_monthly 0 rows (RLS?):", { id: r.id }); throw new Error(`従業員ID ${r.id} の保存ができませんでした（権限設定の可能性）`); }
       }
       // 差分があればログ保存
       if (changeLogs.length > 0) {
-        const { error: logErr } = await supabase.from("payroll_change_logs").insert(changeLogs);
+        const { data: logIns, error: logErr } = await supabase.from("payroll_change_logs").insert(changeLogs).select("id");
         if (logErr) { setError("給与データは保存しましたが、変更履歴の記録に失敗しました: " + logErr.message); await loadData(); return; }
+        if (!logIns || logIns.length === 0) { setError("給与データは保存しましたが変更履歴が0件しか記録できませんでした（権限設定の可能性）"); await loadData(); return; }
       }
       setSuccess(`保存しました${changeLogs.length > 0 ? `（${changeLogs.length}件の変更を記録）` : ""}`);
       await loadData();

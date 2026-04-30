@@ -449,7 +449,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
   const handleSave = async (updated: any) => {
     if (!editRow || !selectedEmp) return;
     if (editRow.id.startsWith("empty-")) {
-      const { error } = await supabase.from("attendance_daily").upsert({
+      const { data: ups, error } = await supabase.from("attendance_daily").upsert({
         employee_id: selectedEmp.id, company_id: employee.company_id,
         attendance_date: editRow.attendance_date,
         day_of_week: DOW[new Date(editRow.attendance_date).getDay()],
@@ -457,16 +457,20 @@ const IndividualSub = ({ employee }: { employee: any }) => {
         punch_in_raw: updated.punch_in_raw, punch_out_raw: updated.punch_out_raw,
         reason: updated.reason, employee_note: updated.employee_note,
         admin_memo: updated.admin_memo, updated_at: new Date().toISOString(),
-      }, { onConflict: "employee_id,attendance_date" });
-      if (error) { setDialogMsg("保存に失敗しました"); } else { setDialogMsg("保存しました"); fetchAttendance(selectedEmp.id); }
+      }, { onConflict: "employee_id,attendance_date" }).select("id");
+      if (error) { console.error("attendance_daily upsert err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
+      else if (!ups || ups.length === 0) { console.error("attendance_daily upsert 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
+      else { setDialogMsg("保存しました"); fetchAttendance(selectedEmp.id); }
     } else {
-      const { error } = await supabase.from("attendance_daily").update({
+      const { data: upd, error } = await supabase.from("attendance_daily").update({
         punch_in: updated.punch_in, punch_out: updated.punch_out,
         punch_in_raw: updated.punch_in_raw, punch_out_raw: updated.punch_out_raw,
         reason: updated.reason, employee_note: updated.employee_note,
         admin_memo: updated.admin_memo, updated_at: new Date().toISOString(),
-      }).eq("id", editRow.id);
-      if (error) { setDialogMsg("保存に失敗しました"); } else { setDialogMsg("保存しました"); fetchAttendance(selectedEmp.id); }
+      }).eq("id", editRow.id).select("id");
+      if (error) { console.error("attendance_daily update err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
+      else if (!upd || upd.length === 0) { console.error("attendance_daily update 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
+      else { setDialogMsg("保存しました"); fetchAttendance(selectedEmp.id); }
     }
     setEditRow(null);
   };
