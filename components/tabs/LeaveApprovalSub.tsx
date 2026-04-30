@@ -97,39 +97,77 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     return { pending, approved, rejected, total: permFiltered.length };
   }, [permFiltered]);
 
+  // leave_requests を申請中に戻す（後段失敗時の補償）
+  const rollbackLeaveRequest = async (id: string) => {
+    await supabase.from("leave_requests").update({
+      status: "申請中", approved_by: null, approved_at: null,
+      reject_reason: null, updated_at: new Date().toISOString(),
+    }).eq("id", id);
+  };
+
+  const showErr = (msg: string) => setDialog({ message: msg, mode: "alert", onOk: () => setDialog(null) });
+
   const handleApprove = async (req: LeaveReq) => {
     setProcessing(req.id);
-    const { error: lrErr } = await supabase.from("leave_requests").update({
+
+    // ① leave_requests を「承認」に更新
+    const { data: lrUpd, error: lrErr } = await supabase.from("leave_requests").update({
       status: "承認", approved_by: employee.id, approved_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", req.id);
-    if (lrErr) { setProcessing(null); setDialog({ message: "承認に失敗しました: " + lrErr.message, mode: "alert", onOk: () => setDialog(null) }); return; }
+    }).eq("id", req.id).select();
+    if (lrErr) { console.error("approve leave_requests err:", lrErr); setProcessing(null); showErr("承認に失敗しました: " + lrErr.message); return; }
+    if (!lrUpd || lrUpd.length === 0) { console.error("approve leave_requests 0 rows (RLS?):", { id: req.id }); setProcessing(null); showErr("承認が保存できませんでした。RLS の可能性があります。管理者に連絡してください。"); return; }
 
+    // ② attendance_daily に有給を反映
     const d = new Date(req.attendance_date);
-    const { error: attErr } = await supabase.from("attendance_daily").upsert({
+    const { data: attUp, error: attErr } = await supabase.from("attendance_daily").upsert({
       employee_id: req.employee_id, company_id: req.company_id || employee.company_id,
       attendance_date: req.attendance_date, day_of_week: DOW[d.getDay()],
       reason: req.reason, updated_at: new Date().toISOString(),
-    }, { onConflict: "employee_id,attendance_date" });
-    if (attErr) { setProcessing(null); setDialog({ message: "出勤簿への登録に失敗しました: " + attErr.message, mode: "alert", onOk: () => setDialog(null) }); return; }
+    }, { onConflict: "employee_id,attendance_date" }).select();
+    if (attErr) {
+      console.error("approve attendance_daily err:", attErr);
+      await rollbackLeaveRequest(req.id);
+      setProcessing(null); showErr("出勤簿への登録に失敗したため承認を取り消しました: " + attErr.message); fetchRequests(); return;
+    }
+    if (!attUp || attUp.length === 0) {
+      console.error("approve attendance_daily 0 rows (RLS?):", { employee_id: req.employee_id, date: req.attendance_date });
+      await rollbackLeaveRequest(req.id);
+      setProcessing(null); showErr("出勤簿への登録が保存できなかったため承認を取り消しました（RLS の可能性）。管理者に連絡してください。"); fetchRequests(); return;
+    }
 
-    // 有給残から消費（KAT=FIFO古い方から、明石西=LIFO新しい方から）
+    // ③ 有給残を消費（KAT=FIFO古い方から、明石西=LIFO新しい方から）
     const yukyuDays = req.reason?.includes("有給（全日）") ? 1 : req.reason?.includes("午前有給") || req.reason?.includes("午後有給") ? 0.5 : 0;
     if (yukyuDays > 0) {
       const isAkashi = employee?.company_id === AKASHI_COMPANY_ID;
       const today = new Date().toISOString().slice(0, 10);
-      const { data: grants } = await supabase.from("paid_leave_grants")
+      const { data: grants, error: grantsErr } = await supabase.from("paid_leave_grants")
         .select("id, remaining_days").eq("employee_id", req.employee_id)
         .gt("remaining_days", 0).gte("expiry_date", today).order("expiry_date", { ascending: !isAkashi });
-      let remaining = yukyuDays;
-      for (const g of (grants || [])) {
-        if (remaining <= 0) break;
-        const consume = Math.min(remaining, Number(g.remaining_days));
-        const { error: consumeErr } = await supabase.from("paid_leave_grants").update({
-          remaining_days: Number(g.remaining_days) - consume,
-        }).eq("id", g.id);
-        if (consumeErr) { setProcessing(null); setDialog({ message: "有給残の更新に失敗しました: " + consumeErr.message, mode: "alert", onOk: () => setDialog(null) }); return; }
-        remaining -= consume;
+      if (grantsErr) {
+        console.error("paid_leave_grants select err:", grantsErr);
+        // 承認・出勤簿は通っているのでロールバックはせず警告
+        showErr("承認は通りましたが有給残の取得に失敗しました。残数を管理者画面で確認してください: " + grantsErr.message);
+      } else {
+        let remaining = yukyuDays;
+        let consumeFailed = false;
+        for (const g of (grants || [])) {
+          if (remaining <= 0) break;
+          const consume = Math.min(remaining, Number(g.remaining_days));
+          const { data: cUpd, error: consumeErr } = await supabase.from("paid_leave_grants").update({
+            remaining_days: Number(g.remaining_days) - consume,
+          }).eq("id", g.id).select();
+          if (consumeErr) { console.error("paid_leave_grants update err:", consumeErr); consumeFailed = true; break; }
+          if (!cUpd || cUpd.length === 0) { console.error("paid_leave_grants update 0 rows (RLS?):", { id: g.id }); consumeFailed = true; break; }
+          remaining -= consume;
+        }
+        if (consumeFailed) {
+          showErr("承認は通りましたが有給残の更新に失敗しました。管理者画面で残数を確認・修正してください。");
+        } else if (remaining > 0) {
+          // 残数不足で消費しきれなかった（事前チェック漏れ）
+          console.error("paid_leave_grants insufficient remaining:", { req_id: req.id, remaining });
+          showErr(`承認は通りましたが消費できなかった日数があります（残: ${remaining}日）。管理者で確認してください。`);
+        }
       }
     }
 
@@ -145,13 +183,14 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
 
   const handleReject = async (req: LeaveReq) => {
     const reason = rejectReasons[req.id]?.trim();
-    if (!reason) { setDialog({ message: "却下理由を入力してください", mode: "alert", onOk: () => setDialog(null) }); return; }
+    if (!reason) { showErr("却下理由を入力してください"); return; }
     setProcessing(req.id);
-    const { error } = await supabase.from("leave_requests").update({
+    const { data: upd, error } = await supabase.from("leave_requests").update({
       status: "却下", approved_by: employee.id, approved_at: new Date().toISOString(),
       reject_reason: reason, updated_at: new Date().toISOString(),
-    }).eq("id", req.id);
-    if (error) { setProcessing(null); setDialog({ message: "却下に失敗しました: " + error.message, mode: "alert", onOk: () => setDialog(null) }); return; }
+    }).eq("id", req.id).select();
+    if (error) { console.error("reject err:", error); setProcessing(null); showErr("却下に失敗しました: " + error.message); return; }
+    if (!upd || upd.length === 0) { console.error("reject 0 rows (RLS?):", { id: req.id }); setProcessing(null); showErr("却下が保存できませんでした（RLS の可能性）。管理者に連絡してください。"); return; }
 
     notifyPush("leave_request_rejected", {
       company_id: employee.company_id, employee_id: req.employee_id,
