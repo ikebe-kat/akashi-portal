@@ -85,6 +85,7 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
       const { data: urlData } = supabase.storage.from("change-requests").getPublicUrl(`employee-photos/${fileName}`);
       photoUrl = urlData?.publicUrl || null;
     }
+    // pin は employees に存在しないため payload から除外し employee_pins に別途 upsert
     const payload: Record<string, any> = {
       company_id: companyId, store_id: form.store_id, employee_code: form.employee_code.trim(), full_name: form.full_name.trim(),
       full_name_kana: form.full_name_kana?.trim() || null, email: form.email?.trim() || null, phone: form.phone?.trim() || null,
@@ -98,10 +99,25 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
       bank_name: form.bank_name?.trim() || null, bank_branch: form.bank_branch?.trim() || null, bank_account_type: form.bank_account_type || null,
       bank_account_number: form.bank_account_number?.trim() || null, bank_account_holder: form.bank_account_holder?.trim() || null,
       basic_pension_number: form.basic_pension_number?.trim() || null, employment_insurance_number: form.employment_insurance_number?.trim() || null,
-      pin: form.pin?.trim() || "1234", skills: form.skills?.trim() || null, my_number: form.my_number?.trim() || null, insurance_card_requested: form.insurance_card_requested || false, photo_url: photoUrl, updated_at: new Date().toISOString(),
+      skills: form.skills?.trim() || null, my_number: form.my_number?.trim() || null, insurance_card_requested: form.insurance_card_requested || false, photo_url: photoUrl, updated_at: new Date().toISOString(),
     };
-    if (isNew) { const { error } = await supabase.from("employees").insert(payload); setSaving(false); if (error) { onSaved("登録失敗: " + error.message); return; } onSaved("新規登録しました"); }
-    else { const { error } = await supabase.from("employees").update(payload).eq("id", emp!.id); setSaving(false); if (error) { onSaved("更新失敗: " + error.message); return; } onSaved("更新しました"); }
+    const pinValue = form.pin?.trim() || "1234";
+    let targetEmpId: string | null = emp?.id || null;
+    if (isNew) {
+      const { data: ins, error } = await supabase.from("employees").insert(payload).select("id").single();
+      if (error) { setSaving(false); onSaved("登録失敗: " + error.message); return; }
+      targetEmpId = ins?.id || null;
+    } else {
+      const { error } = await supabase.from("employees").update(payload).eq("id", emp!.id);
+      if (error) { setSaving(false); onSaved("更新失敗: " + error.message); return; }
+    }
+    // PIN を employee_pins に upsert
+    if (targetEmpId && pinValue) {
+      const { error: pinErr } = await supabase.from("employee_pins").upsert({ employee_id: targetEmpId, pin: pinValue, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+      if (pinErr) { setSaving(false); console.error("employee_pins upsert error:", pinErr); onSaved((isNew ? "登録は完了しましたが" : "更新は完了しましたが") + "PIN保存失敗: " + pinErr.message); return; }
+    }
+    setSaving(false);
+    onSaved(isNew ? "新規登録しました" : "更新しました");
     onClose();
   };
 
@@ -363,11 +379,23 @@ export default function EmployeeManageSub({ employee }: { employee: any }) {
     setStores(storeList);
     const storeMap: Record<string, string> = {};
     storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
-    const { data: ed } = await supabase.from("employees")
-      .select("id, company_id, store_id, employee_code, full_name, full_name_kana, email, phone, gender, birth_date, hire_date, employment_type, position, department, grade, weekly_work_days, weekly_work_hours, paid_leave_grant_date, work_pattern_code, holiday_pattern, holiday_calendar, role, requires_punch, is_active, postal_code, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, bank_name, bank_branch, bank_account_type, bank_account_number, bank_account_holder, basic_pension_number, employment_insurance_number, photo_url, resigned_at, pin, skills, my_number, insurance_card_requested")
+    // pin は employees から削除されたため SELECT 句に含めない（含めるとクエリ失敗で0件になる）
+    const { data: ed, error: edErr } = await supabase.from("employees")
+      .select("id, company_id, store_id, employee_code, full_name, full_name_kana, email, phone, gender, birth_date, hire_date, employment_type, position, department, grade, weekly_work_days, weekly_work_hours, paid_leave_grant_date, work_pattern_code, holiday_pattern, holiday_calendar, role, requires_punch, is_active, postal_code, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, bank_name, bank_branch, bank_account_type, bank_account_number, bank_account_holder, basic_pension_number, employment_insurance_number, photo_url, resigned_at, skills, my_number, insurance_card_requested")
       .eq("company_id", employee.company_id).order("employee_code");
+    if (edErr) {
+      console.error("employees select error:", edErr);
+      setEmps([]); setLoading(false); return;
+    }
+    // PIN は employee_pins から別取得して紐付け
+    const empIds = (ed || []).map((e: any) => e.id);
+    const pinMap: Record<string, string> = {};
+    if (empIds.length > 0) {
+      const { data: pinRows } = await supabase.from("employee_pins").select("employee_id, pin").in("employee_id", empIds);
+      (pinRows || []).forEach((p: any) => { pinMap[p.employee_id] = p.pin; });
+    }
     const HONBU_CODES = ["D02", "D18", "D49", "D67"];
-    setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, store_name: storeMap[e.store_id] || "" })));
+    setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, store_name: storeMap[e.store_id] || "", pin: pinMap[e.id] ?? null })));
     setLoading(false);
   }, [employee?.company_id]);
 
