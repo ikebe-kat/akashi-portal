@@ -9,6 +9,7 @@ import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import { supabase } from "@/lib/supabase";
 import { getPermLevel, canShowCalendarGroupSelect, getDefaultCalendarGroup, canChooseTargetCalendar, canDeleteEvent, storeIdToCalGroup, getAllowedCalGroups } from "@/lib/permissions";
 import Dialog from "@/components/ui/Dialog";
+import { notifyPush } from "@/lib/notifyPush";
 
 // ── 型定義 ──────────────────────────────
 interface CustomEvent {
@@ -171,10 +172,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
       setSaving(false);
       if (error) { setDlg("更新に失敗しました: " + error.message); return; }
       // 編集通知
-      fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "calendar_event", payload: { action: "updated", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } } }),
-      }).catch(() => {});
+      notifyPush("calendar_event", { action: "updated", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } });
     } else {
       const { error } = await supabase.from("custom_events").insert({
         company_id: employee.company_id,
@@ -195,10 +193,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
       setSaving(false);
       if (error) { setDlg("登録に失敗しました: " + error.message); return; }
       // 新規登録通知
-      fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "calendar_event", payload: { action: "created", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } } }),
-      }).catch(() => {});
+      notifyPush("calendar_event", { action: "created", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } });
     }
     onSaved();
     onClose();
@@ -651,10 +646,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
         if (error) { setCalDialog({ message: "削除に失敗しました: " + error.message, mode: "alert", onOk: () => setCalDialog(null) }); return; }
         // 削除通知
         if (ev) {
-          fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "calendar_event", payload: { action: "deleted", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: ev.title, start_date: ev.start_date, target_calendar: ev.target_calendar } } }),
-          }).catch(() => {});
+          notifyPush("calendar_event", { action: "deleted", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: ev.title, start_date: ev.start_date, target_calendar: ev.target_calendar } });
         }
         fetchData();
       },

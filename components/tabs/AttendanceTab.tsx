@@ -6,6 +6,7 @@ import { ReasonBadges } from "@/components/ui";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import type { MonthlySummary } from "@/lib/types";
 import Dialog from "@/components/ui/Dialog";
+import { notifyPush } from "@/lib/notifyPush";
 
 /* ── 小部品 ── */
 const SC = ({ l, v, u, c }: { l: string; v: string | number; u?: string; c?: string }) => (
@@ -384,10 +385,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         setModalDay(null); loadData();
         const notifyCodes = myCode === "DA001" || myCode === "DA002" ? ["D18", "D67"] : [storeName.includes("大久保") ? "DA002" : "DA001", "D18", "D67"];
         const uniqueCodes = [...new Set(notifyCodes)];
-        fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "leave_request_new", payload: { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName, notify_codes: uniqueCodes } }),
-        }).catch(() => {});
+        notifyPush("leave_request_new", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName, notify_codes: uniqueCodes });
       } else { showAlert("申請に失敗しました: " + error.message); }
       return;
     }
@@ -402,10 +400,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       setModalDay(null); loadData();
       if (previewReason && (previewReason.includes("選択休") || previewReason.includes("代休") || previewReason.includes("出張"))) {
         const storeName = employee.store_name || "";
-        fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "attendance_reason_set", payload: { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName } }),
-        }).catch(() => {});
+        notifyPush("attendance_reason_set", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, reason: previewReason, attendance_date: modalDay.dateStr, store_name: storeName });
       }
     }
     else { showAlert("登録に失敗しました: " + error.message); }
@@ -424,10 +419,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         setModalDay(null); loadData();
         if (modalDay.reason && (modalDay.reason.includes("有給") || modalDay.reason.includes("選択休") || modalDay.reason.includes("代休") || modalDay.reason.includes("出張"))) {
           const storeName = employee.store_name || "";
-          fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "attendance_reason_cleared", payload: { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, old_reason: modalDay.reason, attendance_date: modalDay.dateStr, store_name: storeName } }),
-          }).catch(() => {});
+          notifyPush("attendance_reason_cleared", { company_id: employee.company_id, employee_id: employee.id, employee_name: employee.full_name, old_reason: modalDay.reason, attendance_date: modalDay.dateStr, store_name: storeName });
         }
       }
       else { showAlert("取消に失敗しました: " + error.message); }

@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { T, DOW, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
+import { notifyPush } from "@/lib/notifyPush";
 
 const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 
@@ -131,14 +132,11 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
       }
     }
 
-    fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "leave_request_approved", payload: {
-        company_id: employee.company_id, employee_id: req.employee_id,
-        employee_name: req.emp_name, reason: req.reason,
-        attendance_date: req.attendance_date, approved_by_name: employee.full_name,
-      }}),
-    }).catch(() => {});
+    notifyPush("leave_request_approved", {
+      company_id: employee.company_id, employee_id: req.employee_id,
+      employee_name: req.emp_name, reason: req.reason,
+      attendance_date: req.attendance_date, approved_by_name: employee.full_name,
+    });
 
     setProcessing(null);
     fetchRequests();
@@ -154,15 +152,12 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     }).eq("id", req.id);
     if (error) { setProcessing(null); setDialog({ message: "却下に失敗しました: " + error.message, mode: "alert", onOk: () => setDialog(null) }); return; }
 
-    fetch("https://pktqlbpdjemmomfanvgt.supabase.co/functions/v1/send-push-akashi", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "leave_request_rejected", payload: {
-        company_id: employee.company_id, employee_id: req.employee_id,
-        employee_name: req.emp_name, reason: req.reason,
-        attendance_date: req.attendance_date, reject_reason: reason,
-        rejected_by_name: employee.full_name,
-      }}),
-    }).catch(() => {});
+    notifyPush("leave_request_rejected", {
+      company_id: employee.company_id, employee_id: req.employee_id,
+      employee_name: req.emp_name, reason: req.reason,
+      attendance_date: req.attendance_date, reject_reason: reason,
+      rejected_by_name: employee.full_name,
+    });
 
     setProcessing(null);
     fetchRequests();
