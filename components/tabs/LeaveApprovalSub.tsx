@@ -66,14 +66,20 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
-  // 権限フィルタ: DA001→魚住店のみ、DA002→大久保店のみ、HONBU→全件
+  // 権限フィルタ:
+  //   HONBU（D02/D18/D49/D67）→ 全件
+  //   DA001/DA002（店長）→ approver_id が自分のものだけ（= 自分宛に来た申請のみ）
+  //   それ以外 → 空（承認権限なし）
+  // 店舗名で絞ると店長本人の申請（approver_id=D18）も同じ店舗にマッチして見えてしまい、
+  // 自己承認が可能になるため approver_id で厳密に絞る。
   const permFiltered = useMemo(() => {
     const myCode = employee?.employee_code || "";
     if (HONBU_CODES.includes(myCode)) return requests;
-    if (myCode === "DA001") return requests.filter(r => (r.store_name || "").includes("魚住"));
-    if (myCode === "DA002") return requests.filter(r => (r.store_name || "").includes("大久保"));
-    return requests;
-  }, [requests, employee?.employee_code]);
+    if (myCode === "DA001" || myCode === "DA002") {
+      return requests.filter(r => r.approver_id === employee.id);
+    }
+    return [];
+  }, [requests, employee?.employee_code, employee?.id]);
 
   const filtered = useMemo(() => {
     if (filter === "全件") return permFiltered;
