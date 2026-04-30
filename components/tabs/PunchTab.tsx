@@ -268,11 +268,13 @@ export default function PunchTab({ employee }: { employee: any }) {
     try {
       if (type === 'in') {
         if (todayRecord?.id) {
-          const { error } = await supabase
+          const { data: upd, error } = await supabase
             .from('attendance_daily')
             .update({ punch_in_raw: rawTimestamp, punch_in: rounded, updated_at: new Date().toISOString() })
             .eq('id', todayRecord.id)
+            .select('id')
           if (error) throw error
+          if (!upd || upd.length === 0) throw new Error('打刻が保存されませんでした（権限設定の可能性）。管理者に連絡してください')
         } else {
           const { data: rec, error } = await supabase
             .from('attendance_daily')
@@ -298,11 +300,13 @@ export default function PunchTab({ employee }: { employee: any }) {
         }
       } else {
         if (todayRecord?.id) {
-          const { error } = await supabase
+          const { data: upd, error } = await supabase
             .from('attendance_daily')
             .update({ punch_out_raw: rawTimestamp, punch_out: rounded, updated_at: new Date().toISOString() })
             .eq('id', todayRecord.id)
+            .select('id')
           if (error) throw error
+          if (!upd || upd.length === 0) throw new Error('打刻が保存されませんでした（権限設定の可能性）。管理者に連絡してください')
         } else {
           const { data: rec, error } = await supabase
             .from('attendance_daily')
@@ -341,12 +345,19 @@ export default function PunchTab({ employee }: { employee: any }) {
       alert('先に出勤打刻をしてください');
       return;
     }
-    const { error } = await supabase
+    const { data: upd, error } = await supabase
       .from('attendance_daily')
       .update({ break_minutes_self_reported: minutes })
-      .eq('id', todayRecord.id);
+      .eq('id', todayRecord.id)
+      .select('id');
     if (error) {
+      console.error('break update err:', error);
       alert('休憩の更新に失敗しました: ' + error.message);
+      return;
+    }
+    if (!upd || upd.length === 0) {
+      console.error('break update 0 rows (RLS?):', { id: todayRecord.id });
+      alert('休憩を保存できませんでした（権限設定の可能性）。管理者に連絡してください');
       return;
     }
     setTodayRecord({ ...todayRecord, break_minutes_self_reported: minutes });

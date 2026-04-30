@@ -15,26 +15,39 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     const code = employeeCode.toUpperCase().trim()
+    // pin は employees から削除されたため select 句に含めない
     const { data, error: dbError } = await supabase
       .from('employees')
-      .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, pin')
+      .select('id, employee_code, full_name, full_name_kana, department, position, store_id, company_id')
       .eq('employee_code', code)
       .eq('company_id', AKASHI_COMPANY_ID)
       .maybeSingle()
 
-    setLoading(false)
-
-    if (dbError || !data) {
+    if (dbError) {
+      setLoading(false)
+      console.error('employees select error:', dbError)
+      setError('ログインに失敗しました（' + dbError.message + '）')
+      return
+    }
+    if (!data) {
+      setLoading(false)
       setError('社員CDが見つかりません')
       return
     }
 
-    if (data.pin !== pin) {
-      setError('PINが正しくありません')
-      return
+    // pin は employee_pins から取得 → ダメなら legacy employees.pin
+    let dbPin: string | null = null
+    const { data: pinRow } = await supabase.from('employee_pins').select('pin').eq('employee_id', data.id).maybeSingle()
+    if (pinRow?.pin != null) dbPin = pinRow.pin as string
+    else {
+      const { data: legacy } = await supabase.from('employees').select('pin').eq('id', data.id).maybeSingle()
+      dbPin = (legacy as any)?.pin ?? null
     }
+    setLoading(false)
+    if (dbPin == null) { setError('PINが登録されていません。管理者に連絡してください'); return }
+    if (dbPin !== pin) { setError('PINが正しくありません'); return }
 
-    sessionStorage.setItem('employee', JSON.stringify(data))
+    sessionStorage.setItem('employee', JSON.stringify({ ...data, pin: dbPin }))
     router.push('/home')
   }
 

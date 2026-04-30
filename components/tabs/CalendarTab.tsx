@@ -157,7 +157,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
     if (!startDate) { setDlg("開始日を選択してください"); return; }
     setSaving(true);
     if (isEdit) {
-      const { error } = await supabase.from("custom_events").update({
+      const { data: upd, error } = await supabase.from("custom_events").update({
         title: title.trim(),
         start_date: startDate,
         end_date: endDate || startDate,
@@ -168,13 +168,13 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
         target_calendar: targetCalendar,
         repeat_type: repeatType,
         memo: memo.trim() || null,
-      }).eq("id", editEvent!.id);
+      }).eq("id", editEvent!.id).select("id");
       setSaving(false);
-      if (error) { setDlg("更新に失敗しました: " + error.message); return; }
-      // 編集通知
+      if (error) { console.error("custom_events update err:", error); setDlg("更新に失敗しました: " + error.message); return; }
+      if (!upd || upd.length === 0) { console.error("custom_events update 0 rows (RLS?):", { id: editEvent!.id }); setDlg("更新が保存されませんでした（権限設定の可能性）。管理者に連絡してください"); return; }
       notifyPush("calendar_event", { action: "updated", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } });
     } else {
-      const { error } = await supabase.from("custom_events").insert({
+      const { data: ins, error } = await supabase.from("custom_events").insert({
         company_id: employee.company_id,
         creator_employee_id: employee.id,
         creator_code: employee.employee_code,
@@ -189,10 +189,10 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onS
         target_calendar: targetCalendar,
         repeat_type: repeatType,
         memo: memo.trim() || null,
-      });
+      }).select("id");
       setSaving(false);
-      if (error) { setDlg("登録に失敗しました: " + error.message); return; }
-      // 新規登録通知
+      if (error) { console.error("custom_events insert err:", error); setDlg("登録に失敗しました: " + error.message); return; }
+      if (!ins || ins.length === 0) { console.error("custom_events insert 0 rows (RLS?)"); setDlg("登録が保存されませんでした（権限設定の可能性）。管理者に連絡してください"); return; }
       notifyPush("calendar_event", { action: "created", event: { company_id: employee.company_id, creator_employee_id: employee.id, creator_name: employee.full_name, title: title.trim(), start_date: startDate, target_calendar: targetCalendar } });
     }
     onSaved();

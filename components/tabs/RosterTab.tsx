@@ -76,17 +76,26 @@ const PinChangeModal = ({ employeeId, onClose, onSuccess }: PinModalProps) => {
     }
     if (newPin !== confirmPin) { setError("新しいPINが一致しません"); return; }
 
-    // 現在のPIN確認
-    const { data: emp } = await supabase
-      .from("employees").select("pin").eq("id", employeeId).maybeSingle();
-    if (!emp || emp.pin !== currentPin) { setError("現在のPINが正しくありません"); return; }
+    // 現在のPIN確認: employee_pins → fallback employees.pin
+    let currentDbPin: string | null = null;
+    const { data: pinRow } = await supabase.from("employee_pins").select("pin").eq("employee_id", employeeId).maybeSingle();
+    if (pinRow?.pin != null) currentDbPin = pinRow.pin as string;
+    else {
+      const { data: legacy } = await supabase.from("employees").select("pin").eq("id", employeeId).maybeSingle();
+      currentDbPin = (legacy as any)?.pin ?? null;
+    }
+    if (currentDbPin == null || currentDbPin !== currentPin) { setError("現在のPINが正しくありません"); return; }
 
     setSaving(true);
-    const { error: updateErr } = await supabase
-      .from("employees").update({ pin: newPin }).eq("id", employeeId);
+    // PIN は employee_pins に upsert
+    const { data: upd, error: updateErr } = await supabase.from("employee_pins").upsert(
+      { employee_id: employeeId, pin: newPin, updated_at: new Date().toISOString() },
+      { onConflict: "employee_id" }
+    ).select();
     setSaving(false);
 
-    if (updateErr) { setError("更新に失敗しました"); return; }
+    if (updateErr) { console.error("employee_pins upsert err:", updateErr); setError("更新に失敗しました: " + updateErr.message); return; }
+    if (!upd || upd.length === 0) { console.error("employee_pins 0 rows (RLS?):", { employeeId }); setError("PIN を保存できませんでした（権限設定の可能性）。管理者に連絡してください"); return; }
     onSuccess();
   };
 
