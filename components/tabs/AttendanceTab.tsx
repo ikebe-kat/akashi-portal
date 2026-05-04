@@ -162,9 +162,10 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       setKibouQuota(kibouData?.quota ? Number(kibouData.quota) : 0);
     } else { setKibouQuota(0); }
     const { data: lrData } = await supabase
-      .from("leave_requests").select("attendance_date, end_date, status, reason, reject_reason")
-      .eq("employee_id", employee.id).in("status", ["申請中", "却下"]);
-    setLeaveRequests(lrData ?? []);
+      .from("leave_requests").select("attendance_date, end_date, status, reason, reject_reason, approved_at, type")
+      .eq("employee_id", employee.id).in("status", ["申請中", "却下", "承認"]);
+    // shift_work/shift_off は別管理のため、有給系（type IS NULL）だけを leaveRequests に入れる
+    setLeaveRequests((lrData ?? []).filter((r: any) => r.type !== "shift_work" && r.type !== "shift_off"));
 
     // パート: shift_typeとシフト登録データを取得
     if (employee.employment_type === "パート" && employee.company_id === AKASHI_COMPANY_ID) {
@@ -195,6 +196,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       const rec = rows.find(r => r.attendance_date === dateStr);
       const pendingLr = leaveRequests.find(lr => lr.status === "申請中" && lr.attendance_date === dateStr);
       const rejectedLr = leaveRequests.find(lr => lr.status === "却下" && lr.attendance_date === dateStr);
+      const approvedLr = leaveRequests.find(lr => lr.status === "承認" && lr.attendance_date === dateStr);
       days.push({
         day: d, dow: date.getDay(), dateStr,
         pi: rec?.punch_in?.slice(0, 5) ?? null, po: rec?.punch_out?.slice(0, 5) ?? null,
@@ -204,6 +206,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         off: holidays.includes(dateStr),
         pending: !!pendingLr,
         rejected: !!rejectedLr,
+        approved: !!approvedLr,
         rejectReason: rejectedLr?.reject_reason || null,
       });
     }
@@ -562,7 +565,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                     <td style={{ padding: "7px 4px", textAlign: "center", color: dc, width: 20 }}>{DOW[row.dow]}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.pi ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.po ?? <span style={{ color: T.textPH }}>—</span>}</td>
-                    <td style={{ padding: "7px 4px" }}>{row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "定休日" : null)} />}</td>
+                    <td style={{ padding: "7px 4px" }}>{row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : row.approved && row.reason && row.reason.includes("有給") ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#D1FAE5", color: "#065F46" }}>有給承認済</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "定休日" : null)} />}</td>
                     {!isMobile && (
                       <td style={{ padding: "7px 4px", color: T.text, width: 56, whiteSpace: "nowrap" }}>{row.wm > 0 ? fmtMin(row.wm) : <span style={{ color: T.textPH }}>—</span>}</td>
                     )}
@@ -598,8 +601,22 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             <div style={{ fontSize: 13, color: T.textSec, marginBottom: 16 }}>{yr}年{mo}月{modalDay.day}日（{DOW[modalDay.dow]}）</div>
 
 
-            {/* 申請中の場合 */}
-            {modalDay.pending && !modalDay.reason ? (() => {
+            {/* 承認済み有給の場合：再申請UIを開かず承認済表示 */}
+            {modalDay.approved && modalDay.reason && modalDay.reason.includes("有給") ? (() => {
+              const lr = leaveRequests.find((r: any) => r.status === "承認" && r.attendance_date === modalDay.dateStr);
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ padding: "14px", borderRadius: "6px", backgroundColor: "#ECFDF5", border: "1px solid #10B981" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#065F46", marginBottom: 8 }}>✅ 有給承認済</div>
+                    <div style={{ marginBottom: 4 }}><ReasonBadges reason={lr?.reason || modalDay.reason} /></div>
+                    {lr?.approved_at && <div style={{ fontSize: 12, color: "#065F46", marginTop: 6 }}>承認日時: {new Date(lr.approved_at).toLocaleString("ja-JP")}</div>}
+                  </div>
+                  <button onClick={() => setModalDay(null)} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: "6px", border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 14, cursor: "pointer" }}>閉じる</button>
+                </div>
+              );
+            })() :
+            /* 申請中の場合 */
+            modalDay.pending && !modalDay.reason ? (() => {
               const lr = leaveRequests.find((r: any) => r.attendance_date === modalDay.dateStr);
               return lr ? (
                 <div style={{ marginBottom: 20 }}>
