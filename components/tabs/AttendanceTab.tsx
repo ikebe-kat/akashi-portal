@@ -138,7 +138,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     const yearMonth = `${yr}/${String(mo).padStart(2, "0")}`;
 
     const { data: attData } = await supabase
-      .from("attendance_daily").select("attendance_date, punch_in, punch_out, reason, actual_hours, over_under")
+      .from("attendance_daily").select("attendance_date, punch_in, punch_out, reason, actual_hours, over_under, break_minutes_self_reported")
       .eq("employee_id", employee.id).gte("attendance_date", from).lte("attendance_date", to).order("attendance_date");
     setRows(attData ?? []);
 
@@ -188,6 +188,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
 
   /* ── 日付リスト ── */
   const allDays = useMemo(() => {
+    const toM = (t: string) => { const p = t.split(':'); return Number(p[0]) * 60 + Number(p[1]); };
     const days = [];
     const daysInMonth = new Date(yr, mo, 0).getDate();
     for (let d = 1; d <= daysInMonth; d++) {
@@ -197,11 +198,17 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       const pendingLr = leaveRequests.find(lr => lr.status === "申請中" && lr.attendance_date === dateStr);
       const rejectedLr = leaveRequests.find(lr => lr.status === "却下" && lr.attendance_date === dateStr);
       const approvedLr = leaveRequests.find(lr => lr.status === "承認" && lr.attendance_date === dateStr);
+      let wm = 0;
+      if (isAkashiPart && rec?.punch_in && rec?.punch_out) {
+        wm = toM(rec.punch_out.slice(0, 5)) - toM(rec.punch_in.slice(0, 5)) - ((rec as any).break_minutes_self_reported ?? 0);
+      } else if (rec?.actual_hours) {
+        wm = Math.round(Number(rec.actual_hours) * 60);
+      }
       days.push({
         day: d, dow: date.getDay(), dateStr,
         pi: rec?.punch_in?.slice(0, 5) ?? null, po: rec?.punch_out?.slice(0, 5) ?? null,
         reason: rec?.reason ?? null,
-        wm: rec?.actual_hours ? Math.round(Number(rec.actual_hours) * 60) : 0,
+        wm,
         diff: rec?.over_under ? Math.round(Number(rec.over_under) * 60) : 0,
         off: holidays.includes(dateStr),
         pending: !!pendingLr,
@@ -211,7 +218,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       });
     }
     return days;
-  }, [yr, mo, rows, holidays, leaveRequests]);
+  }, [yr, mo, rows, holidays, leaveRequests, isAkashiPart]);
 
   /* ── サマリー ── */
   const sum = useMemo((): MonthlySummary => {
