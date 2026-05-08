@@ -347,7 +347,7 @@ export default function PunchTab({ employee }: { employee: any }) {
     }
     const { data: upd, error } = await supabase
       .from('attendance_daily')
-      .update({ break_minutes_self_reported: minutes })
+      .update({ break_minutes_self_reported: minutes, break_minutes: minutes })
       .eq('id', todayRecord.id)
       .select('id');
     if (error) {
