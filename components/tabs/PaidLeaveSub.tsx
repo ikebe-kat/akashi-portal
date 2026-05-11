@@ -193,8 +193,10 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
     const { data: gd } = await supabase.from("paid_leave_grants").select("*").eq("company_id", employee.company_id);
     const grants: Grant[] = (gd || []).map((g: any) => ({ ...g, grant_days: Number(g.grant_days), remaining_days: Number(g.remaining_days) }));
 
-    /* 有給消費カウント用: attendance_daily */
-    const { data: attData } = await supabase.from("attendance_daily").select("employee_id, attendance_date, reason").eq("company_id", employee.company_id);
+    /* 有給消費カウント用: attendance_daily（年5日カウント用、直近2年+有給のみ） */
+    const twoYearsAgo = new Date(); twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    const rangeStart = `${twoYearsAgo.getFullYear()}-${String(twoYearsAgo.getMonth()+1).padStart(2,"0")}-01`;
+    const { data: attData } = await supabase.from("attendance_daily").select("employee_id, attendance_date, reason").eq("company_id", employee.company_id).gte("attendance_date", rangeStart).like("reason", "%有給%");
     const attByEmp: Record<string, { date: string; reason: string }[]> = {};
     (attData || []).forEach((a: any) => {
       if (!a.reason) return;
@@ -280,9 +282,9 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
           empAtt.forEach(a => {
             const ad = new Date(a.date);
             if (ad >= periodStart && ad < periodEnd) {
-              if (a.reason.includes("有給") && !a.reason.includes("半有")) fiveTaken += 1;
-              if (a.reason.includes("半有(前)")) fiveTaken += 0.5;
-              if (a.reason.includes("半有(後)")) fiveTaken += 0.5;
+              if (a.reason.includes("有給（全日）")) fiveTaken += 1;
+              if (a.reason.includes("午前有給")) fiveTaken += 0.5;
+              if (a.reason.includes("午後有給")) fiveTaken += 0.5;
             }
           });
 

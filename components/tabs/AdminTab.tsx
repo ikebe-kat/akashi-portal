@@ -65,6 +65,65 @@ const STORE_FILTER_OPTIONS = [
   { value: "魚住店", label: "魚住店" },
 ];
 
+const calcYukyuDays = (reason: string | null): number => {
+  if (!reason) return 0;
+  let days = 0;
+  if (reason.includes("有給（全日）")) days += 1;
+  if (reason.includes("午前有給")) days += 0.5;
+  if (reason.includes("午後有給")) days += 0.5;
+  return days;
+};
+
+const adjustLeaveGrants = async (
+  employeeId: string,
+  companyId: string,
+  oldReason: string | null,
+  newReason: string | null,
+): Promise<string | null> => {
+  const oldDays = calcYukyuDays(oldReason);
+  const newDays = calcYukyuDays(newReason);
+  const diff = newDays - oldDays;
+  if (diff === 0) return null;
+
+  const isAkashi = companyId === AKASHI_COMPANY_ID;
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (diff > 0) {
+    const { data: grants, error } = await supabase.from("paid_leave_grants")
+      .select("id, remaining_days").eq("employee_id", employeeId)
+      .eq("is_expired", false).gt("remaining_days", 0).gte("expiry_date", today)
+      .order("expiry_date", { ascending: !isAkashi });
+    if (error) return "有給残の取得に失敗: " + error.message;
+    let remaining = diff;
+    for (const g of (grants || [])) {
+      if (remaining <= 0) break;
+      const consume = Math.min(remaining, Number(g.remaining_days));
+      const { error: uErr } = await supabase.from("paid_leave_grants")
+        .update({ remaining_days: Number(g.remaining_days) - consume }).eq("id", g.id);
+      if (uErr) return "有給残の更新に失敗: " + uErr.message;
+      remaining -= consume;
+    }
+    if (remaining > 0) return `有給残不足（消費できなかった日数: ${remaining}日）`;
+  } else {
+    const { data: grants, error } = await supabase.from("paid_leave_grants")
+      .select("id, grant_days, remaining_days").eq("employee_id", employeeId)
+      .eq("is_expired", false).gte("expiry_date", today)
+      .order("expiry_date", { ascending: !isAkashi });
+    if (error) return "有給残の取得に失敗: " + error.message;
+    let toRestore = Math.abs(diff);
+    for (const g of (grants || [])) {
+      if (toRestore <= 0) break;
+      const canRestore = Math.min(toRestore, Number(g.grant_days) - Number(g.remaining_days));
+      if (canRestore <= 0) continue;
+      const { error: uErr } = await supabase.from("paid_leave_grants")
+        .update({ remaining_days: Number(g.remaining_days) + canRestore }).eq("id", g.id);
+      if (uErr) return "有給残の復元に失敗: " + uErr.message;
+      toRestore -= canRestore;
+    }
+  }
+  return null;
+};
+
 
 /* ── 4桁時間入力コンポーネント ── */
 const TimeInput = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) => {
@@ -224,7 +283,8 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
         empId = attRow?.employee_id || null;
       }
       if (empId) {
-        const { data: grants } = await supabase.from("paid_leave_grants").select("remaining_days").eq("employee_id", empId).gt("remaining_days", 0);
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const { data: grants } = await supabase.from("paid_leave_grants").select("remaining_days").eq("employee_id", empId).eq("is_expired", false).gt("remaining_days", 0).gte("expiry_date", todayStr);
         const totalRemaining = (grants || []).reduce((s: number, g: any) => s + Number(g.remaining_days), 0);
         if (totalRemaining < yukyuDays) { alert(`有給残が不足しています（残: ${totalRemaining}日）`); return; }
       }
@@ -453,6 +513,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
 
   const handleSave = async (updated: any) => {
     if (!editRow || !selectedEmp) return;
+    let saveOk = false;
     if (editRow.id.startsWith("empty-")) {
       const { data: ups, error } = await supabase.from("attendance_daily").upsert({
         employee_id: selectedEmp.id, company_id: employee.company_id,
@@ -465,7 +526,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
       }, { onConflict: "employee_id,attendance_date" }).select("id");
       if (error) { console.error("attendance_daily upsert err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
       else if (!ups || ups.length === 0) { console.error("attendance_daily upsert 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
-      else { setDialogMsg("保存しました"); fetchAttendance(selectedEmp.id); }
+      else { saveOk = true; }
     } else {
       const { data: upd, error } = await supabase.from("attendance_daily").update({
         punch_in: updated.punch_in, punch_out: updated.punch_out,
@@ -475,7 +536,13 @@ const IndividualSub = ({ employee }: { employee: any }) => {
       }).eq("id", editRow.id).select("id");
       if (error) { console.error("attendance_daily update err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
       else if (!upd || upd.length === 0) { console.error("attendance_daily update 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
-      else { setDialogMsg("保存しました"); fetchAttendance(selectedEmp.id); }
+      else { saveOk = true; }
+    }
+    if (saveOk) {
+      const leaveErr = await adjustLeaveGrants(selectedEmp.id, employee.company_id, editRow.reason, updated.reason);
+      if (leaveErr) { setDialogMsg("保存しました（有給残の調整に問題: " + leaveErr + "）"); }
+      else { setDialogMsg("保存しました"); }
+      fetchAttendance(selectedEmp.id);
     }
     setEditRow(null);
   };
@@ -598,6 +665,26 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
   const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 14, boxSizing: "border-box", fontFamily: "inherit" };
 
   const handleBulkSave = async () => {
+    const newYukyuDays = calcYukyuDays(previewReason);
+    if (newYukyuDays > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      const shortage: string[] = [];
+      for (const row of checkedRows) {
+        const empObj = emps.find(e => e.code === row.emp_code);
+        const empId = empObj?.id || (row.id.startsWith("empty-") ? row.id.replace("empty-", "") : null);
+        if (!empId) continue;
+        const oldDays = calcYukyuDays(row.reason);
+        const diff = newYukyuDays - oldDays;
+        if (diff <= 0) continue;
+        const { data: grants } = await supabase.from("paid_leave_grants")
+          .select("remaining_days").eq("employee_id", empId)
+          .eq("is_expired", false).gt("remaining_days", 0).gte("expiry_date", today);
+        const total = (grants || []).reduce((s: number, g: any) => s + Number(g.remaining_days), 0);
+        if (total < diff) shortage.push(row.emp_name);
+      }
+      if (shortage.length > 0) { alert(`有給残が不足している社員がいます:\n${shortage.join("、")}`); return; }
+    }
+
     setSaving(true);
     const promises: Promise<any>[] = [];
     for (const row of checkedRows) {
@@ -620,6 +707,15 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
       }
     }
     const results = await Promise.all(promises);
+
+    if (previewReason !== null) {
+      for (const row of checkedRows) {
+        const empObj = emps.find(e => e.code === row.emp_code);
+        const empId = empObj?.id || (row.id.startsWith("empty-") ? row.id.replace("empty-", "") : null);
+        if (empId) await adjustLeaveGrants(empId, employee.company_id, row.reason, previewReason || null);
+      }
+    }
+
     setSaving(false);
     const failed = results.filter((r: any) => r.error || !r.data || r.data.length === 0);
     if (failed.length > 0) { console.error("一括編集 失敗:", failed); alert(`${failed.length}件の保存に失敗しました（権限設定の可能性）。コンソールを確認してください。`); }
@@ -781,6 +877,8 @@ const DailySub = ({ employee }: { employee: any }) => {
   const handleSave = async (updated: any) => {
     if (!editRow) return;
     const empObj = emps.find(e => e.code === editRow.emp_code);
+    let saveOk = false;
+    const resolvedEmpId = empObj?.id || (editRow.id.startsWith("empty-") ? editRow.id.replace("empty-", "") : null);
     if (editRow.id.startsWith("empty-")) {
       const empId = empObj?.id || editRow.id.replace("empty-", "");
       const { data: ups, error } = await supabase.from("attendance_daily").upsert({
@@ -793,7 +891,7 @@ const DailySub = ({ employee }: { employee: any }) => {
       }, { onConflict: "employee_id,attendance_date" }).select("id");
       if (error) { console.error("daily upsert err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
       else if (!ups || ups.length === 0) { console.error("daily upsert 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
-      else { setDialogMsg("保存しました"); fetchDaily(); }
+      else { saveOk = true; }
     } else {
       const { data: upd, error } = await supabase.from("attendance_daily").update({
         punch_in: updated.punch_in, punch_out: updated.punch_out,
@@ -803,7 +901,16 @@ const DailySub = ({ employee }: { employee: any }) => {
       }).eq("id", editRow.id).select("id");
       if (error) { console.error("daily update err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
       else if (!upd || upd.length === 0) { console.error("daily update 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
-      else { setDialogMsg("保存しました"); fetchDaily(); }
+      else { saveOk = true; }
+    }
+    if (saveOk && resolvedEmpId) {
+      const leaveErr = await adjustLeaveGrants(resolvedEmpId, employee.company_id, editRow.reason, updated.reason);
+      if (leaveErr) { setDialogMsg("保存しました（有給残の調整に問題: " + leaveErr + "）"); }
+      else { setDialogMsg("保存しました"); }
+      fetchDaily();
+    } else if (saveOk) {
+      setDialogMsg("保存しました");
+      fetchDaily();
     }
     setEditRow(null);
   };

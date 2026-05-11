@@ -244,7 +244,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   /* ── モーダル開く ── */
   const openModal = (day: any) => {
     setModalDay(day);
-    setSelZenjitsu(null); setSelGozen(null); setSelGogo(null); setSelKinmu([]); setNote("");
+    setSelZenjitsu(null); setSelGozen(null); setSelGogo(null); setSelKinmu([]); setNote(""); setRequestComment("");
     setShucchoOpen(false); setShucchoFrom(day.dateStr); setShucchoTo(day.dateStr); setShucchoWhere("");
     setDaikyuMode("none"); setDaikyuHalf(null); setDaikyuDate("");
 
@@ -383,7 +383,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         approverId = da01?.id || null;
       }
       setSaving(true);
-      // .select() で挿入行を返してもらい、RLSで黙って0行になるパターンを検知
+      await supabase.from("leave_requests").delete()
+        .eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr).eq("status", "却下");
       const { data: inserted, error } = await supabase.from("leave_requests").insert({
         company_id: employee.company_id,
         employee_id: employee.id,
@@ -572,7 +573,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                     <td style={{ padding: "7px 4px", textAlign: "center", color: dc, width: 20 }}>{DOW[row.dow]}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.pi ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.po ?? <span style={{ color: T.textPH }}>—</span>}</td>
-                    <td style={{ padding: "7px 4px" }}>{row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : row.approved && row.reason && row.reason.includes("有給") ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#D1FAE5", color: "#065F46" }}>有給承認済</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "定休日" : null)} />}</td>
+                    <td style={{ padding: "7px 4px" }}>{row.approved && row.reason && row.reason.includes("有給") ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#D1FAE5", color: "#065F46" }}>有給承認済</span> : row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "定休日" : null)} />}</td>
                     {!isMobile && (
                       <td style={{ padding: "7px 4px", color: T.text, width: 56, whiteSpace: "nowrap" }}>{row.wm > 0 ? fmtMin(row.wm) : <span style={{ color: T.textPH }}>—</span>}</td>
                     )}

@@ -137,7 +137,10 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     }
 
     // ③ 有給残を消費（KAT=FIFO古い方から、明石西=LIFO新しい方から）
-    const yukyuDays = req.reason?.includes("有給（全日）") ? 1 : req.reason?.includes("午前有給") || req.reason?.includes("午後有給") ? 0.5 : 0;
+    let yukyuDays = 0;
+    if (req.reason?.includes("有給（全日）")) yukyuDays += 1;
+    if (req.reason?.includes("午前有給")) yukyuDays += 0.5;
+    if (req.reason?.includes("午後有給")) yukyuDays += 0.5;
     if (yukyuDays > 0) {
       const isAkashi = employee?.company_id === AKASHI_COMPANY_ID;
       const today = new Date().toISOString().slice(0, 10);
