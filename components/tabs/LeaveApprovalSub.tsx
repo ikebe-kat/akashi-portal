@@ -146,7 +146,7 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
       const today = new Date().toISOString().slice(0, 10);
       const { data: grants, error: grantsErr } = await supabase.from("paid_leave_grants")
         .select("id, remaining_days").eq("employee_id", req.employee_id)
-        .gt("remaining_days", 0).gte("expiry_date", today).order("expiry_date", { ascending: !isAkashi });
+        .eq("is_expired", false).gt("remaining_days", 0).gte("expiry_date", today).order("expiry_date", { ascending: !isAkashi });
       if (grantsErr) {
         console.error("paid_leave_grants select err:", grantsErr);
         // 承認・出勤簿は通っているのでロールバックはせず警告
