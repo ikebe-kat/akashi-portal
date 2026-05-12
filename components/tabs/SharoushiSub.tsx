@@ -137,7 +137,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.punch_out_raw) cO2++;
             if (a.overtime_hours && a.overtime_hours > 0) cOt++;
             if (a.scheduled_hours && a.scheduled_hours > 0) cSc++;
-            if (a.scheduled_hours && a.scheduled_hours >= 7.5) cS7++;
+            if (a.scheduled_hours && a.scheduled_hours >= 8.0) cS7++;
             if (a.reason) {
               cR++;
               const r = a.reason;
