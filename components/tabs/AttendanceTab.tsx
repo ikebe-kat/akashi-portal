@@ -269,13 +269,14 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   };
 
   /* ── 排他制御 ── */
-  const toggleZenjitsu = (v: string) => { if (selZenjitsu === v) { setSelZenjitsu(null); return; } setSelZenjitsu(v); setSelGozen(null); setSelGogo(null); setDaikyuMode("none"); setDaikyuHalf(null); setDaikyuDate(""); };
+  const toggleZenjitsu = (v: string) => { if (selZenjitsu === v) { setSelZenjitsu(null); return; } setSelZenjitsu(v); setSelGozen(null); setSelGogo(null); setDaikyuMode("none"); setDaikyuHalf(null); setDaikyuDate(""); if (v === "有給（全日）") { setSelKinmu([]); setShucchoOpen(false); setShucchoWhere(""); } };
   const toggleGozen = (v: string) => { if (selGozen === v) { setSelGozen(null); return; } setSelGozen(v); setSelZenjitsu(null); };
   const toggleGogo = (v: string) => { if (selGogo === v) { setSelGogo(null); return; } setSelGogo(v); setSelZenjitsu(null); };
   const toggleKinmu = (v: string) => {
-    if (v === "出張") { if (selKinmu.includes("出張")) { setSelKinmu(prev => prev.filter(x => x !== "出張")); setShucchoOpen(false); } else { setSelKinmu(prev => [...prev, "出張"]); setShucchoOpen(true); } return; }
+    if (v === "出張") { if (selKinmu.includes("出張")) { setSelKinmu(prev => prev.filter(x => x !== "出張")); setShucchoOpen(false); } else { if (selZenjitsu === "有給（全日）") setSelZenjitsu(null); setSelKinmu(prev => [...prev, "出張"]); setShucchoOpen(true); } return; }
     if (v === "代休") { if (daikyuMode === "full") { setDaikyuMode("none"); setDaikyuDate(""); } else { setDaikyuMode("full"); setDaikyuHalf(null); setSelZenjitsu(null); setSelGozen(null); setSelGogo(null); } return; }
     if (v === "半日代休") { if (daikyuMode === "half") { setDaikyuMode("none"); setDaikyuHalf(null); setDaikyuDate(""); } else { setDaikyuMode("half"); setDaikyuHalf(null); setSelZenjitsu(null); } return; }
+    if (!selKinmu.includes(v) && selZenjitsu === "有給（全日）") setSelZenjitsu(null);
     setSelKinmu(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
   };
 
@@ -328,6 +329,10 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   const submitReason = async () => {
     if (!modalDay || !previewReason) return;
 
+    if (previewReason.includes("有給") && (previewReason.includes("出張") || previewReason.includes("代休") || previewReason.includes("休日出勤") || previewReason.includes("遅刻") || previewReason.includes("早退") || previewReason.includes("欠勤"))) {
+      showAlert("有給は他の事由と同時に登録できません"); return;
+    }
+
     if (selKinmu.includes("出張")) {
       if (!shucchoFrom) { showAlert("開始日を選択してください"); return; }
       const f = new Date(shucchoFrom), t = new Date(shucchoTo || shucchoFrom);
@@ -342,7 +347,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     if (daikyuMode === "half" && !daikyuHalf) { showAlert("午前か午後を選択してください"); return; }
 
     /* 有給残チェック（期限切れは除外） */
-    const yukyuDays = selZenjitsu === "有給（全日）" ? 1 : (selGozen === "午前有給" ? 0.5 : 0) + (selGogo === "午後有給" ? 0.5 : 0);
+    const yukyuDays = selZenjitsu === "有給（全日）" ? 1 : 0;
     if (yukyuDays > 0) {
       const today = toDateStr(new Date());
       const { data: grants } = await supabase.from("paid_leave_grants").select("remaining_days").eq("employee_id", employee.id).eq("is_expired", false).gt("remaining_days", 0).gte("expiry_date", today).order("expiry_date", { ascending: true });
@@ -786,7 +791,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             )}
 
             <div style={{ marginBottom: 20 }}>
-            {(selZenjitsu === "有給（全日）" || selGozen === "午前有給" || selGogo === "午後有給") && (
+            {selZenjitsu === "有給（全日）" && (
               <div style={{ padding: 14, borderRadius: "6px", border: "1px solid #3B82F6", backgroundColor: "#EFF6FF", marginBottom: 12 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#1D4ED8", marginBottom: 8 }}>有給申請理由（必須）</div>
                 <textarea value={requestComment} onChange={e => setRequestComment(e.target.value)} placeholder="例：私用のため、通院のため"
@@ -803,7 +808,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
               {modalDay.reason && (
                 <button onClick={cancelReason} disabled={saving} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: `1px solid ${T.danger}`, backgroundColor: "#fff", color: T.danger, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{saving ? "..." : "取消"}</button>
               )}
-              <button onClick={submitReason} disabled={saving || !previewReason} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: "none", backgroundColor: previewReason ? (selZenjitsu === "有給（全日）" || selGozen === "午前有給" || selGogo === "午後有給" ? "#1D4ED8" : T.primary) : T.border, color: previewReason ? "#fff" : T.textMuted, fontSize: 14, fontWeight: 600, cursor: previewReason ? "pointer" : "default" }}>{saving ? "処理中..." : (selZenjitsu === "有給（全日）" || selGozen === "午前有給" || selGogo === "午後有給" ? "申請" : "登録")}</button>
+              <button onClick={submitReason} disabled={saving || !previewReason} style={{ flex: 1, padding: "12px", borderRadius: "6px", border: "none", backgroundColor: previewReason ? (selZenjitsu === "有給（全日）" ? "#1D4ED8" : T.primary) : T.border, color: previewReason ? "#fff" : T.textMuted, fontSize: 14, fontWeight: 600, cursor: previewReason ? "pointer" : "default" }}>{saving ? "処理中..." : (selZenjitsu === "有給（全日）" ? "申請" : "登録")}</button>
             </div>
             </>}
           </div>
