@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuPart, AKASHI_COMPANY_ID } from "@/lib/constants";
+import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuPart, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import { ReasonBadges } from "@/components/ui";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import type { MonthlySummary } from "@/lib/types";
@@ -132,9 +132,9 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   /* ── データ取得 ── */
   const loadData = useCallback(async () => {
     if (!employee?.id) return;
-    const from = `${yr}-${String(mo).padStart(2, "0")}-01`;
-    const toDate = new Date(yr, mo, 0);
-    const to = `${yr}-${String(mo).padStart(2, "0")}-${String(toDate.getDate()).padStart(2, "0")}`;
+    const range = getDateRange(yr, mo, isAkashiPart);
+    const from = range.from;
+    const to = range.to;
     const yearMonth = `${yr}/${String(mo).padStart(2, "0")}`;
 
     const { data: attData } = await supabase
@@ -190,10 +190,9 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   const allDays = useMemo(() => {
     const toM = (t: string) => { const p = t.split(':'); return Number(p[0]) * 60 + Number(p[1]); };
     const days = [];
-    const daysInMonth = new Date(yr, mo, 0).getDate();
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(yr, mo - 1, d);
-      const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const range = getDateRange(yr, mo, isAkashiPart);
+    for (const rd of range.days) {
+      const { dateStr, day, dow } = rd;
       const rec = rows.find(r => r.attendance_date === dateStr);
       const pendingLr = leaveRequests.find(lr => lr.status === "申請中" && lr.attendance_date === dateStr);
       const rejectedLr = leaveRequests.find(lr => lr.status === "却下" && lr.attendance_date === dateStr);
@@ -205,7 +204,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         wm = Math.round(Number(rec.actual_hours) * 60);
       }
       days.push({
-        day: d, dow: date.getDay(), dateStr,
+        day, dow, dateStr,
         pi: rec?.punch_in?.slice(0, 5) ?? null, po: rec?.punch_out?.slice(0, 5) ?? null,
         reason: rec?.reason ?? null,
         wm,
@@ -215,6 +214,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         rejected: !!rejectedLr,
         approved: !!approvedLr,
         rejectReason: rejectedLr?.reject_reason || null,
+        breakMin: (rec as any)?.break_minutes_self_reported ?? null,
       });
     }
     return days;
@@ -558,7 +558,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={() => go(-1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: "6px", backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec }}>◀</button>
-          <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 90, textAlign: "center" }}>{yr}年{mo}月</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 90, textAlign: "center" }}>{yr}年{mo}月{isAkashiPart && <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: T.textSec }}>（{mo === 1 ? 12 : mo - 1}/11〜{mo}/10）</span>}</span>
           <button onClick={() => go(1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: "6px", backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec }}>▶</button>
         </div>
       </div>
@@ -589,6 +589,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                 <th style={{ padding: "8px 4px", color: T.textSec, fontWeight: 600, whiteSpace: "nowrap", textAlign: "left" }}>出勤</th>
                 <th style={{ padding: "8px 4px", color: T.textSec, fontWeight: 600, whiteSpace: "nowrap", textAlign: "left" }}>退勤</th>
                 <th style={{ padding: "8px 4px", color: T.textSec, fontWeight: 600, whiteSpace: "nowrap", textAlign: "left" }}>事由</th>
+                {!isMobile && isAkashiPart && <th style={{ padding: "8px 4px", color: T.textSec, fontWeight: 600, whiteSpace: "nowrap", textAlign: "center" }}>休憩</th>}
                 {!isMobile && <th style={{ padding: "8px 4px", color: T.textSec, fontWeight: 600, whiteSpace: "nowrap", textAlign: "left" }}>実労働</th>}
                 {!isMobile && <th style={{ padding: "8px 4px", color: T.textSec, fontWeight: 600, whiteSpace: "nowrap", textAlign: "left" }}>過不足</th>}
                 <th style={{ padding: "8px 4px", color: T.textSec, fontWeight: 600, whiteSpace: "nowrap", textAlign: "center" }}></th>
@@ -599,11 +600,14 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                 const dc = row.dow === 0 ? T.holidayRed : row.dow === 6 ? T.yukyuBlue : T.text;
                 return (
                   <tr key={row.day} style={{ backgroundColor: row.off ? "#FFF8F8" : "#fff", borderBottom: `1px solid ${T.borderLight}` }}>
-                    <td style={{ padding: "7px 4px", textAlign: "center", fontWeight: 600, color: dc, width: 24 }}>{row.day}</td>
+                    <td style={{ padding: "7px 4px", textAlign: "center", fontWeight: 600, color: dc, width: isAkashiPart ? 36 : 24 }}>{isAkashiPart ? `${parseInt(row.dateStr.slice(5, 7))}/${row.day}` : row.day}</td>
                     <td style={{ padding: "7px 4px", textAlign: "center", color: dc, width: 20 }}>{DOW[row.dow]}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.pi ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.po ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px" }}>{row.approved && row.reason && row.reason.includes("有給") ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#D1FAE5", color: "#065F46" }}>有給承認済</span> : row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "定休日" : null)} />}</td>
+                    {!isMobile && isAkashiPart && (
+                      <td style={{ padding: "7px 4px", color: T.text, width: 40, whiteSpace: "nowrap", textAlign: "center", fontSize: 11 }}>{row.breakMin != null ? `${row.breakMin}分` : <span style={{ color: T.textPH }}>—</span>}</td>
+                    )}
                     {!isMobile && (
                       <td style={{ padding: "7px 4px", color: T.text, width: 56, whiteSpace: "nowrap" }}>{row.wm > 0 ? fmtMin(row.wm) : <span style={{ color: T.textPH }}>—</span>}</td>
                     )}

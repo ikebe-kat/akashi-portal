@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { T, displayReason, displayChipLabel, isKoukyuPart, AKASHI_COMPANY_ID } from "@/lib/constants";
+import { T, displayReason, displayChipLabel, isKoukyuPart, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import { Badge, ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
@@ -198,13 +198,14 @@ function parseDaikyu(reason: string): { type: "full" | "am" | "pm"; date: string
 /* ══════════════════════════════════════ */
 /* ── 編集モーダル（チップ選択式）── */
 /* ══════════════════════════════════════ */
-interface EditModalProps { row: AttRow; empName: string; empCode: string; onClose: () => void; onSave: (updated: any) => void; }
-const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) => {
+interface EditModalProps { row: AttRow; empName: string; empCode: string; isPart?: boolean; onClose: () => void; onSave: (updated: any) => void; }
+const EditModal = ({ row, empName, empCode, isPart, onClose, onSave }: EditModalProps) => {
   const [punchIn, setPunchIn] = useState(row.punch_in?.slice(0,5) || "");
   const [punchOut, setPunchOut] = useState(row.punch_out?.slice(0,5) || "");
   const [note, setNote] = useState(row.employee_note || "");
   const [memo, setMemo] = useState(row.admin_memo || "");
   const [saving, setSaving] = useState(false);
+  const [breakMin, setBreakMin] = useState<number | null>(row.break_minutes_self_reported ?? null);
 
   const [selZenjitsu, setSelZenjitsu] = useState<string | null>(null);
   const [selGozen, setSelGozen] = useState<string | null>(null);
@@ -335,7 +336,7 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
       alert("退勤時刻が出勤時刻より前です");
       return;
     }
-    onSave({
+    const saveData: any = {
       punch_in: punchIn || null,
       punch_out: punchOut || null,
       punch_in_raw: toRaw(punchIn || null, row.attendance_date),
@@ -343,7 +344,9 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
       reason: previewReason || null,
       employee_note: note || null,
       admin_memo: memo || null,
-    });
+    };
+    if (isPart) saveData.break_minutes_self_reported = breakMin;
+    onSave(saveData);
   };
 
   return (
@@ -357,6 +360,26 @@ const EditModal = ({ row, empName, empCode, onClose, onSave }: EditModalProps) =
           <TimeInput label="出勤" value={punchIn} onChange={setPunchIn} />
           <TimeInput label="退勤" value={punchOut} onChange={setPunchOut} />
         </div>
+
+        {isPart && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 12, color: T.textSec, display: "block", marginBottom: 3 }}>休憩時間（分）</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[0, 30, 45, 60].map(v => (
+                <button key={v} type="button" onClick={() => setBreakMin(v)} style={{
+                  flex: 1, padding: "8px 4px", borderRadius: 6, fontSize: 13, fontWeight: breakMin === v ? 600 : 400, cursor: "pointer",
+                  border: breakMin === v ? `2px solid ${T.primary}` : `1px solid ${T.border}`,
+                  backgroundColor: breakMin === v ? T.primary + "18" : "#fff",
+                  color: breakMin === v ? T.primary : T.text,
+                }}>{v}分</button>
+              ))}
+              <input type="number" value={breakMin != null && ![0, 30, 45, 60].includes(breakMin) ? breakMin : ""}
+                onChange={e => setBreakMin(e.target.value ? Number(e.target.value) : null)}
+                placeholder="他" min={0} max={480}
+                style={{ width: 56, padding: "8px 6px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 13, textAlign: "center" }} />
+            </div>
+          </div>
+        )}
 
         <div style={{ padding: "10px 14px", borderRadius: 6, backgroundColor: previewReason ? "#ECFDF5" : T.bg, marginBottom: 16, minHeight: 36, display: "flex", alignItems: "center" }}>
           {previewReason ? <ReasonBadges reason={previewReason} /> : <span style={{ fontSize: 13, color: T.textMuted }}>事由なし</span>}
@@ -467,11 +490,12 @@ const IndividualSub = ({ employee }: { employee: any }) => {
 
   const fetchAttendance = useCallback(async (empId: string) => {
     setLoading(true);
-    const startDate = `${yr}-${String(mo).padStart(2,"0")}-01`;
-    const endDay = new Date(yr, mo, 0).getDate();
-    const endDate = `${yr}-${String(mo).padStart(2,"0")}-${String(endDay).padStart(2,"0")}`;
-
     const emp = emps.find(e => e.id === empId);
+    const isPart = emp?.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID;
+    const range = getDateRange(yr, mo, isPart);
+    const startDate = range.from;
+    const endDate = range.to;
+
     const calType = emp?.holiday_calendar || null;
     let holidaySet = new Set<string>();
     if (calType) {
@@ -489,8 +513,8 @@ const IndividualSub = ({ employee }: { employee: any }) => {
     const dataMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { dataMap[r.attendance_date] = r; });
     const allDays: AttRow[] = [];
-    for (let d = 1; d <= endDay; d++) {
-      const dateStr = `${yr}-${String(mo).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    for (const rd of range.days) {
+      const dateStr = rd.dateStr;
       const isHoliday = holidaySet.has(dateStr);
       if (dataMap[dateStr]) {
         const existing = dataMap[dateStr];
@@ -500,7 +524,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
           allDays.push(existing);
         }
       }
-      else { allDays.push({ id: `empty-${d}`, attendance_date: dateStr, day_of_week: null, punch_in: null, punch_out: null, reason: null, break_minutes: null, break_minutes_self_reported: null, late_minutes: null, early_leave_minutes: null, actual_hours: null, scheduled_hours: null, overtime_hours: null, over_under: null, employee_note: null, admin_memo: null, is_holiday: isHoliday || null, work_pattern_code: null }); }
+      else { allDays.push({ id: `empty-${dateStr}`, attendance_date: dateStr, day_of_week: null, punch_in: null, punch_out: null, reason: null, break_minutes: null, break_minutes_self_reported: null, late_minutes: null, early_leave_minutes: null, actual_hours: null, scheduled_hours: null, overtime_hours: null, over_under: null, employee_note: null, admin_memo: null, is_holiday: isHoliday || null, work_pattern_code: null }); }
     }
     setRows(allDays);
     setLoading(false);
@@ -523,6 +547,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
         punch_in_raw: updated.punch_in_raw, punch_out_raw: updated.punch_out_raw,
         reason: updated.reason, employee_note: updated.employee_note,
         admin_memo: updated.admin_memo, updated_at: new Date().toISOString(),
+        ...(updated.break_minutes_self_reported !== undefined ? { break_minutes_self_reported: updated.break_minutes_self_reported } : {}),
       }, { onConflict: "employee_id,attendance_date" }).select("id");
       if (error) { console.error("attendance_daily upsert err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
       else if (!ups || ups.length === 0) { console.error("attendance_daily upsert 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
@@ -533,6 +558,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
         punch_in_raw: updated.punch_in_raw, punch_out_raw: updated.punch_out_raw,
         reason: updated.reason, employee_note: updated.employee_note,
         admin_memo: updated.admin_memo, updated_at: new Date().toISOString(),
+        ...(updated.break_minutes_self_reported !== undefined ? { break_minutes_self_reported: updated.break_minutes_self_reported } : {}),
       }).eq("id", editRow.id).select("id");
       if (error) { console.error("attendance_daily update err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
       else if (!upd || upd.length === 0) { console.error("attendance_daily update 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
@@ -584,7 +610,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button onClick={() => goMonth(-1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 6, backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec, display: "flex", alignItems: "center", justifyContent: "center" }}>◀</button>
-            <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 80, textAlign: "center" }}>{yr}年{mo}月</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 80, textAlign: "center" }}>{yr}年{mo}月{isSelPartAkashi && <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: T.textSec }}>（{mo === 1 ? 12 : mo - 1}/11〜{mo}/10）</span>}</span>
             <button onClick={() => goMonth(1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 6, backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec, display: "flex", alignItems: "center", justifyContent: "center" }}>▶</button>
           </div>
         </div>
@@ -593,13 +619,14 @@ const IndividualSub = ({ employee }: { employee: any }) => {
         {loading ? (<div style={{ textAlign: "center", padding: "40px", color: T.textMuted, fontSize: 14 }}>読み込み中...</div>) : (
           <div style={{ borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}><div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 640 }}>
-              <thead><tr style={{ backgroundColor: T.primary }}>{["日付","出勤","退勤","事由","実労働","所定外","備考",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+              <thead><tr style={{ backgroundColor: T.primary }}>{["日付","出勤","退勤","事由",...(isSelPartAkashi ? ["休憩"] : []),"実労働","所定外","備考",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
               <tbody>{rows.map(r => { const d = new Date(r.attendance_date); const dow = d.getDay(); const isOff = r.is_holiday || r.reason === "公休"; const hasReason = r.reason && r.reason !== "公休"; const ah = isSelPartAkashi ? calcPartHours(r.punch_in, r.punch_out, r.break_minutes_self_reported) : r.actual_hours; return (
                 <tr key={r.id} style={{ backgroundColor: isOff ? "#FFF5F5" : hasReason ? "#FFFDE7" : "#fff", borderBottom: `1px solid ${T.borderLight}` }}>
-                  <td style={{ padding: "8px 6px", fontWeight: 600, color: dow === 0 ? T.holidayRed : dow === 6 ? T.yukyuBlue : T.text, textAlign: "center", whiteSpace: "nowrap" }}>{d.getDate()}<span style={{ fontSize: 10, marginLeft: 1, fontWeight: 400 }}>({DOW[dow]})</span></td>
+                  <td style={{ padding: "8px 6px", fontWeight: 600, color: dow === 0 ? T.holidayRed : dow === 6 ? T.yukyuBlue : T.text, textAlign: "center", whiteSpace: "nowrap" }}>{isSelPartAkashi ? `${d.getMonth()+1}/${d.getDate()}` : d.getDate()}<span style={{ fontSize: 10, marginLeft: 1, fontWeight: 400 }}>({DOW[dow]})</span></td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_in ? T.text : T.textPH }}>{fmTime(r.punch_in)}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_out ? T.text : T.textPH }}>{fmTime(r.punch_out)}</td>
                   <td style={{ padding: "6px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, (r as any).emp_code || "") || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
+                  {isSelPartAkashi && <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.text }}>{r.break_minutes_self_reported != null ? `${r.break_minutes_self_reported}分` : "—"}</td>}
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: ah != null ? T.text : T.textPH }}>{ah != null ? fmDecimal(ah) : "—"}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: (r.over_under ?? 0) > 0 ? T.success : (r.over_under ?? 0) < 0 ? T.danger : T.textMuted }}>{r.over_under != null ? `${r.over_under > 0 ? "+" : ""}${fmDecimal(r.over_under)}` : "—"}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.textSec, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.employee_note || r.admin_memo || "—"}</td>
@@ -611,7 +638,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
           </div></div>
         )}
       </>)}
-      {editRow && selectedEmp && <EditModal row={editRow} empName={selectedEmp.name} empCode={selectedEmp.code} onClose={() => setEditRow(null)} onSave={handleSave} />}
+      {editRow && selectedEmp && <EditModal row={editRow} empName={selectedEmp.name} empCode={selectedEmp.code} isPart={isSelPartAkashi} onClose={() => setEditRow(null)} onSave={handleSave} />}
       {dialogMsg && <Dialog message={dialogMsg} onOk={() => setDialogMsg(null)} />}
       <style>{`@keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}@keyframes fadeIn{from{opacity:0}to{opacity:1}}`}</style>
     </div>
@@ -888,6 +915,7 @@ const DailySub = ({ employee }: { employee: any }) => {
         punch_in_raw: updated.punch_in_raw, punch_out_raw: updated.punch_out_raw,
         reason: updated.reason, employee_note: updated.employee_note,
         admin_memo: updated.admin_memo, updated_at: new Date().toISOString(),
+        ...(updated.break_minutes_self_reported !== undefined ? { break_minutes_self_reported: updated.break_minutes_self_reported } : {}),
       }, { onConflict: "employee_id,attendance_date" }).select("id");
       if (error) { console.error("daily upsert err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
       else if (!ups || ups.length === 0) { console.error("daily upsert 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
@@ -898,6 +926,7 @@ const DailySub = ({ employee }: { employee: any }) => {
         punch_in_raw: updated.punch_in_raw, punch_out_raw: updated.punch_out_raw,
         reason: updated.reason, employee_note: updated.employee_note,
         admin_memo: updated.admin_memo, updated_at: new Date().toISOString(),
+        ...(updated.break_minutes_self_reported !== undefined ? { break_minutes_self_reported: updated.break_minutes_self_reported } : {}),
       }).eq("id", editRow.id).select("id");
       if (error) { console.error("daily update err:", error); setDialogMsg("保存に失敗しました: " + error.message); }
       else if (!upd || upd.length === 0) { console.error("daily update 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
@@ -946,7 +975,7 @@ const DailySub = ({ employee }: { employee: any }) => {
       {loading ? (<div style={{ textAlign: "center", padding: "40px", color: T.textMuted, fontSize: 14 }}>読み込み中...</div>) : (
         <div style={{ borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}><div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 700 }}>
-            <thead><tr style={{ backgroundColor: T.primary }}>{[...(selectMode ? ["✓"] : []), "店舗","CD","氏名","出勤","退勤","事由","実労働","所定外","備考",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ backgroundColor: T.primary }}>{[...(selectMode ? ["✓"] : []), "店舗","CD","氏名","出勤","退勤","事由","休憩","実労働","所定外","備考",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>{rows.map(r => {
               const isOff = r.reason?.includes("選択休") || r.reason?.includes("代休") || r.is_holiday;
               const isYukyu = r.reason?.includes("有給");
@@ -962,18 +991,19 @@ const DailySub = ({ employee }: { employee: any }) => {
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_in ? T.text : T.textPH }}>{fmTime(r.punch_in)}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_out ? T.text : T.textPH }}>{fmTime(r.punch_out)}</td>
                   <td style={{ padding: "5px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, (r as any).emp_code || "") || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
+                  <td style={{ padding: "7px 6px", textAlign: "center", fontSize: 11, color: T.text }}>{isP && r.break_minutes_self_reported != null ? `${r.break_minutes_self_reported}分` : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: ah != null ? T.text : T.textPH }}>{ah != null ? fmDecimal(ah) : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: (r.over_under ?? 0) > 0 ? T.success : (r.over_under ?? 0) < 0 ? T.danger : T.textMuted }}>{r.over_under != null ? `${r.over_under > 0 ? "+" : ""}${fmDecimal(r.over_under)}` : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontSize: 11, color: T.textSec, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.employee_note || r.admin_memo || "—"}</td>
                   <td style={{ padding: "5px", textAlign: "center" }}><button onClick={() => { setEditRow(r); setEditEmpName(r.emp_name); }} style={{ padding: "5px 10px", borderRadius: 4, border: "none", backgroundColor: T.primary, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>修正</button></td>
                 </tr>);
             })}
-            {rows.length === 0 && <tr><td colSpan={selectMode ? 11 : 10} style={{ padding: "30px", textAlign: "center", color: T.textMuted, fontSize: 13 }}>データがありません</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={selectMode ? 12 : 11} style={{ padding: "30px", textAlign: "center", color: T.textMuted, fontSize: 13 }}>データがありません</td></tr>}
             </tbody>
           </table>
         </div></div>
       )}
-      {editRow && <EditModal row={editRow} empName={editEmpName} empCode={(editRow as any).emp_code || ""} onClose={() => setEditRow(null)} onSave={handleSave} />}
+      {editRow && <EditModal row={editRow} empName={editEmpName} empCode={(editRow as any).emp_code || ""} isPart={editRow.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID} onClose={() => setEditRow(null)} onSave={handleSave} />}
       {showBulkModal && <BulkEditModal
         checkedRows={rows.filter(r => checkedIds.has(r.id))}
         emps={emps}
@@ -1030,9 +1060,10 @@ const MonthlySub = ({ employee }: { employee: any }) => {
   const fetchMonthly = useCallback(async () => {
     if (emps.length === 0) return;
     setLoading(true);
-    const startDate = `${yr}-${String(mo).padStart(2,"0")}-01`;
-    const endDay = new Date(yr, mo, 0).getDate();
-    const endDate = `${yr}-${String(mo).padStart(2,"0")}-${String(endDay).padStart(2,"0")}`;
+    const regularRange = getDateRange(yr, mo, false);
+    const partRange = getDateRange(yr, mo, true);
+    const broadStart = partRange.from < regularRange.from ? partRange.from : regularRange.from;
+    const broadEnd = regularRange.to > partRange.to ? regularRange.to : partRange.to;
     const yearMonth = `${yr}/${String(mo).padStart(2,"0")}`;
 
     let scopedEmps = emps;
@@ -1044,22 +1075,23 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     scopedEmps.forEach(e => { empMap[e.id] = e; });
 
     const calTypes = [...new Set(scopedEmps.map(e => e.holiday_calendar).filter(Boolean))] as string[];
-    const holidayCountByCalType: Record<string, number> = {};
+    const holidaysByCalType: Record<string, string[]> = {};
     if (calTypes.length > 0) {
       const { data: hcData } = await supabase
         .from("holiday_calendars")
         .select("calendar_type, holiday_date")
         .eq("company_id", employee.company_id)
-        .gte("holiday_date", startDate)
-        .lte("holiday_date", endDate)
+        .gte("holiday_date", broadStart)
+        .lte("holiday_date", broadEnd)
         .in("calendar_type", calTypes);
       (hcData || []).forEach((h: any) => {
-        holidayCountByCalType[h.calendar_type] = (holidayCountByCalType[h.calendar_type] || 0) + 1;
+        if (!holidaysByCalType[h.calendar_type]) holidaysByCalType[h.calendar_type] = [];
+        holidaysByCalType[h.calendar_type].push(h.holiday_date);
       });
     }
 
-    const { data: attData } = await supabase.from("attendance_daily").select("employee_id, reason, actual_hours, scheduled_hours, overtime_hours, over_under, late_minutes, early_leave_minutes, is_holiday, punch_in, punch_out, break_minutes_self_reported")
-      .gte("attendance_date", startDate).lte("attendance_date", endDate).in("employee_id", empIds);
+    const { data: attData } = await supabase.from("attendance_daily").select("employee_id, attendance_date, reason, actual_hours, scheduled_hours, overtime_hours, over_under, late_minutes, early_leave_minutes, is_holiday, punch_in, punch_out, break_minutes_self_reported")
+      .gte("attendance_date", broadStart).lte("attendance_date", broadEnd).in("employee_id", empIds);
 
     const { data: varData } = await supabase.from("variable_hours").select("scheduled_hours")
       .eq("company_id", employee.company_id).eq("year_month", yearMonth).limit(1).maybeSingle();
@@ -1073,12 +1105,14 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     });
 
     const result: MonthlyRow[] = scopedEmps.map(emp => {
-      const recs = grouped[emp.id] || [];
+      const isP = emp.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID;
+      const empRange = getDateRange(yr, mo, isP);
+      const recs = (grouped[emp.id] || []).filter((r: any) => r.attendance_date >= empRange.from && r.attendance_date <= empRange.to);
       let workDays = 0, kibouDays = 0, absences = 0, yukyuDays = 0;
       let totalMin = 0, overtimeMin = 0, lateCount = 0, earlyCount = 0;
-      const isP = emp.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID;
 
-      const holidays = emp.holiday_calendar ? (holidayCountByCalType[emp.holiday_calendar] || 0) : 0;
+      const holidays = emp.holiday_calendar ?
+        (holidaysByCalType[emp.holiday_calendar] || []).filter(d => d >= empRange.from && d <= empRange.to).length : 0;
 
       recs.forEach((r: any) => {
         if (r.is_holiday || r.reason === "公休") { return; }

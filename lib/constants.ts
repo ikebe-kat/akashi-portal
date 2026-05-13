@@ -83,6 +83,39 @@ export const stepMonth = (
   else if (nm < 1) { nm = 12; ny--; }
   return [ny, nm];
 };
+
+/** パート10日締め期間計算（パート: 前月11日〜当月10日、正社員: 1日〜末日） */
+export function getDateRange(yr: number, mo: number, isPart: boolean): {
+  from: string;
+  to: string;
+  days: { dateStr: string; day: number; dow: number }[];
+} {
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  if (!isPart) {
+    const dim = new Date(yr, mo, 0).getDate();
+    const from = `${yr}-${p2(mo)}-01`;
+    const to = `${yr}-${p2(mo)}-${p2(dim)}`;
+    const days = [];
+    for (let d = 1; d <= dim; d++) {
+      days.push({ dateStr: `${yr}-${p2(mo)}-${p2(d)}`, day: d, dow: new Date(yr, mo - 1, d).getDay() });
+    }
+    return { from, to, days };
+  }
+  const prevMo = mo === 1 ? 12 : mo - 1;
+  const prevYr = mo === 1 ? yr - 1 : yr;
+  const from = `${prevYr}-${p2(prevMo)}-11`;
+  const to = `${yr}-${p2(mo)}-10`;
+  const days = [];
+  const prevEnd = new Date(prevYr, prevMo, 0).getDate();
+  for (let d = 11; d <= prevEnd; d++) {
+    days.push({ dateStr: `${prevYr}-${p2(prevMo)}-${p2(d)}`, day: d, dow: new Date(prevYr, prevMo - 1, d).getDay() });
+  }
+  for (let d = 1; d <= 10; d++) {
+    days.push({ dateStr: `${yr}-${p2(mo)}-${p2(d)}`, day: d, dow: new Date(yr, mo - 1, d).getDay() });
+  }
+  return { from, to, days };
+}
+
 // ═══════════════════════════════════════════
 // パート公休 名称変更
 // ═══════════════════════════════════════════

@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useState, useCallback } from "react";
-import { T } from "@/lib/constants";
+import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 
@@ -76,13 +76,14 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const emps: EmpD[] = empRaw.map((e: any) => { const st = stMap.get(e.store_id) || { code: "000", name: "指定なし" }; return { ...e, store_code: st.code, store_name: st.name }; });
 
       setProgress("勤怠データ取得中...");
-      const ym = `${selYear}-${String(selMonth).padStart(2, "0")}`;
-      const dim = new Date(selYear, selMonth, 0).getDate();
-      const d1 = `${ym}-01`, dN = `${ym}-${String(dim).padStart(2, "0")}`;
+      const regularRange = getDateRange(selYear, selMonth, false);
+      const partRange = getDateRange(selYear, selMonth, true);
+      const broadStart = partRange.from < regularRange.from ? partRange.from : regularRange.from;
+      const broadEnd = regularRange.to > partRange.to ? regularRange.to : partRange.to;
 
       const { data: attRaw, error: attErr } = await supabase.from("attendance_daily")
         .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, reason, late_minutes, early_leave_minutes, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday")
-        .gte("attendance_date", d1).lte("attendance_date", dN);
+        .gte("attendance_date", broadStart).lte("attendance_date", broadEnd);
       if (attErr) throw attErr;
       const attByEmp = new Map<string, Map<string, AttR>>();
       for (const r of (attRaw || [])) { if (!attByEmp.has(r.employee_id)) attByEmp.set(r.employee_id, new Map()); attByEmp.get(r.employee_id)!.set(r.attendance_date, r as AttR); }
@@ -92,14 +93,13 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const lvMap = new Map<string, number>();
       for (const l of (lvRaw || [])) lvMap.set(l.employee_id, (lvMap.get(l.employee_id) || 0) + l.remaining_days);
 
-      const { data: holRaw } = await supabase.from("holiday_calendars").select("holiday_date, calendar_type").gte("holiday_date", d1).lte("holiday_date", dN);
+      const { data: holRaw } = await supabase.from("holiday_calendars").select("holiday_date, calendar_type").gte("holiday_date", broadStart).lte("holiday_date", broadEnd);
       const holByType = new Map<string, Set<string>>();
       for (const h of (holRaw || [])) { if (!holByType.has(h.calendar_type)) holByType.set(h.calendar_type, new Set()); holByType.get(h.calendar_type)!.add(h.holiday_date); }
 
       const mm = String(selMonth).padStart(2, "0");
-      const fDow = DOW[new Date(selYear, selMonth - 1, 1).getDay()];
-      const lDow = DOW[new Date(selYear, selMonth, 0).getDay()];
-      const hdr = `${selYear}年${mm}月[${selYear}年${mm}月01日(${fDow})～${selYear}年${mm}月${String(dim).padStart(2, "0")}日(${lDow})]`;
+      const fmtDL = (ds: string, dw: string) => { const [y, m, d] = ds.split("-"); return `${y}年${m}月${d}日(${dw})`; };
+      const regHdr = `${selYear}年${mm}月[${fmtDL(regularRange.from, DOW[regularRange.days[0].dow])}～${fmtDL(regularRange.to, DOW[regularRange.days[regularRange.days.length - 1].dow])}]`;
 
       /* ══ データ収集 ══ */
       setProgress("データ集計中...");
@@ -110,17 +110,25 @@ export default function SharoushiSub({ employee }: { employee: any }) {
 
       for (const emp of emps) {
         const ma = attByEmp.get(emp.id) || new Map<string, AttR>();
-        const empHols = emp.holiday_calendar ? (holByType.get(emp.holiday_calendar) || new Set<string>()) : new Set<string>();
+        const isPart = emp.employment_type === "パート";
+        const empRange = getDateRange(selYear, selMonth, isPart);
+        const empHdr = isPart
+          ? `${selYear}年${mm}月[${fmtDL(empRange.from, DOW[empRange.days[0].dow])}～${fmtDL(empRange.to, DOW[empRange.days[empRange.days.length - 1].dow])}]`
+          : regHdr;
+        const empHolDates = emp.holiday_calendar ? (holByType.get(emp.holiday_calendar) || new Set<string>()) : new Set<string>();
+        const empHols = new Set<string>();
+        for (const ds of empHolDates) { if (ds >= empRange.from && ds <= empRange.to) empHols.add(ds); }
 
-        iCsv += `【勤務個人表】\r\n${hdr}\r\n所属CD：${emp.store_code} ${emp.store_name}\r\n社員CD：${emp.employee_code.padStart(6, "0")} ${emp.full_name}\r\n`;
+        iCsv += `【勤務個人表】\r\n${empHdr}\r\n所属CD：${emp.store_code} ${emp.store_name}\r\n社員CD：${emp.employee_code.padStart(6, "0")} ${emp.full_name}\r\n`;
         iCsv += `月/日,曜,事由, 出勤, 退勤,    遅刻,    早退,私用外出,    残業,    休出,所定勤務,    契約,超過不足\r\n`;
         let sL = 0, sE = 0, sO = 0, sS = 0, sC = 0, sU = 0;
         let cW = 0, cR = 0, cI = 0, cO2 = 0, cOt = 0, cSc = 0, cS7 = 0;
         let cY = 0, cK = 0, cKk = 0, cD = 0, cF = 0, cB = 0, cSh = 0;
         const dRows: string[][] = [];
-        for (let d = 1; d <= dim; d++) {
-          const ds = `${ym}-${String(d).padStart(2, "0")}`;
-          const dw = DOW[new Date(ds + "T00:00:00").getDay()];
+        for (const dayInfo of empRange.days) {
+          const ds = dayInfo.dateStr;
+          const [, dm, dd] = ds.split("-");
+          const dw = DOW[dayInfo.dow];
           const a = ma.get(ds);
           const isHol = empHols.has(ds);
           let rs = "", pi = "", po = "", lt = "", et = "", ot = "", sc = "", ct = "", ou = "";
@@ -151,26 +159,27 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             }
             if (a.punch_in_raw || a.punch_out_raw || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) cW++;
           }
-          // 会社休日で事由がない日は「休日」
           if (isHol && !rs) rs = "休日";
-          dRows.push([`${mm}/${String(d).padStart(2, "0")}`, dw, rs, pi, po, lt, et, "", ot, "", sc, ct, ou]);
-          iCsv += [`${mm}/${String(d).padStart(2, "0")}`, dw, pad(rs, 4), pad(pi, 5), pad(po, 5), pad(lt, 8), pad(et, 8), pad("", 8), pad(ot, 8), pad("", 8), pad(sc, 8), pad(ct, 8), pad(ou, 8)].join(",") + "\r\n";
+          const dateCol = `${dm}/${dd}`;
+          dRows.push([dateCol, dw, rs, pi, po, lt, et, "", ot, "", sc, ct, ou]);
+          iCsv += [dateCol, dw, pad(rs, 4), pad(pi, 5), pad(po, 5), pad(lt, 8), pad(et, 8), pad("", 8), pad(ot, 8), pad("", 8), pad(sc, 8), pad(ct, 8), pad(ou, 8)].join(",") + "\r\n";
         }
         const totVals = ["", "", "", "", "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmDec(sO) : "", "", sS ? fmDec(sS) : "", sC ? fmDec(sC) : "", sU ? fmMin(sU) : ""];
         iCsv += ["合計 ", "  ", "    ", "     ", "     ", pad(totVals[5], 8), pad(totVals[6], 8), pad("", 8), pad(totVals[8], 8), pad("", 8), pad(totVals[10], 8), pad(totVals[11], 8), pad(totVals[12], 8)].join(",") + "\r\n";
-        const hols = empHols.size;
-        const kitei = dim - hols;
+        const empHolCount = empHols.size;
+        const empDays = empRange.days.length;
+        const kitei = empDays - empHolCount;
         const yz = lvMap.get(emp.id) ?? 0;
         persons.push({
           emp, rows: dRows, totRow: totVals,
-          cnt: [dim, cW, cR, cI, cO2, cOt, cSc, cS7],
+          cnt: [empDays, cW, cR, cI, cO2, cOt, cSc, cS7],
           kit: [`${kitei}.0`, `${cW}.0`, cY > 0 ? `${cY}` : "", `${yz}`, cK > 0 ? `${cK}` : "", cKk > 0 ? `${cKk}` : "", cD > 0 ? `${cD}` : "", cF > 0 ? `${cF}` : "", cB > 0 ? `${cB}` : ""]
         });
       }
 
       /* ── 合計表CSV（出張追加、他休=選択休+公休集計）── */
       setProgress("勤務合計表CSV生成中...");
-      let sCsv = `【勤務合計表】\r\n${hdr}\r\n所属CD：指定なし\r\n社員CD：指定なし\r\n`;
+      let sCsv = `【勤務合計表】\r\n${regHdr}\r\n所属CD：指定なし\r\n社員CD：指定なし\r\n`;
       sCsv += `社員CD,氏名        ,    勤務,勤務時間,    有休,    出張,    欠勤,    他休,    遅刻,    遅刻,    早退,    早退,私用外出,早出残業,普通残業,深夜残業,特別残業,法外普通,法外深夜,法内普通,法内深夜,超過不足\r\n`;
       interface SumR { code: string; name: string; w: number; sm: number; y: number; sh: number; k: number; oth: number; lc: number; lm: number; ec: number; em: number; om: number; um: number; }
       const sumRows: SumR[] = [];
@@ -178,8 +187,10 @@ export default function SharoushiSub({ employee }: { employee: any }) {
 
       for (const ip of persons) {
         const ma = attByEmp.get(ip.emp.id) || new Map<string, AttR>();
+        const sumRange = getDateRange(selYear, selMonth, ip.emp.employment_type === "パート");
         let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
-        for (const [, a] of ma) {
+        for (const [dateKey, a] of ma) {
+          if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
           if (a.punch_in_raw || a.punch_out_raw || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
           if (a.scheduled_hours) sm += Math.round(a.scheduled_hours * 60);
           if (a.reason) {
@@ -233,8 +244,12 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         const shName = `${ip.emp.employee_code} ${ip.emp.full_name}`.slice(0, 31);
         const ws = iWb.addWorksheet(shName);
         ws.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1 };
+        const ipRange = getDateRange(selYear, selMonth, ip.emp.employment_type === "パート");
+        const ipHdr = ip.emp.employment_type === "パート"
+          ? `${selYear}年${mm}月[${fmtDL(ipRange.from, DOW[ipRange.days[0].dow])}～${fmtDL(ipRange.to, DOW[ipRange.days[ipRange.days.length - 1].dow])}]`
+          : regHdr;
         let r = 1;
-        ws.getCell(r, 1).value = hdr; ws.getCell(r, 1).font = normFont; r++;
+        ws.getCell(r, 1).value = ipHdr; ws.getCell(r, 1).font = normFont; r++;
         ws.getCell(r, 1).value = `所属CD：${ip.emp.store_code} ${ip.emp.store_name}`; ws.getCell(r, 1).font = normFont; r++;
         ws.getCell(r, 1).value = `社員CD：${ip.emp.employee_code.padStart(6, "0")} ${ip.emp.full_name}`; ws.getCell(r, 1).font = normFont; r++;
         for (let c = 0; c < hdrs.length; c++) {
@@ -267,7 +282,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const sWs = sWb.addWorksheet("勤務合計表");
       sWs.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1 };
       let sr = 1;
-      sWs.getCell(sr, 1).value = hdr; sWs.getCell(sr, 1).font = normFont; sr++;
+      sWs.getCell(sr, 1).value = regHdr; sWs.getCell(sr, 1).font = normFont; sr++;
       sWs.getCell(sr, 1).value = "所属CD：指定なし"; sWs.getCell(sr, 1).font = normFont; sr++;
       sWs.getCell(sr, 1).value = "社員CD：指定なし"; sWs.getCell(sr, 1).font = normFont; sr++;
       const sHdrs = ["社員CD", "氏名", "勤務\n回", "勤務\n時間", "有休", "出張", "欠勤", "他休", "遅刻\n回", "遅刻\n時間", "早退\n回", "早退\n時間", "私用\n外出", "早出\n残業", "普通\n残業", "深夜\n残業", "特別\n残業", "法外\n普通", "法外\n深夜", "法内\n普通", "法内\n深夜", "超過\n不足"];
