@@ -84,7 +84,7 @@ export const stepMonth = (
   return [ny, nm];
 };
 
-/** パート10日締め期間計算（パート: 前月11日〜当月10日、正社員: 1日〜末日） */
+/** パート10日締め期間計算（パート: 当月11日〜翌月10日、正社員: 1日〜末日） */
 export function getDateRange(yr: number, mo: number, isPart: boolean): {
   from: string;
   to: string;
@@ -101,17 +101,17 @@ export function getDateRange(yr: number, mo: number, isPart: boolean): {
     }
     return { from, to, days };
   }
-  const prevMo = mo === 1 ? 12 : mo - 1;
-  const prevYr = mo === 1 ? yr - 1 : yr;
-  const from = `${prevYr}-${p2(prevMo)}-11`;
-  const to = `${yr}-${p2(mo)}-10`;
+  const nextMo = mo === 12 ? 1 : mo + 1;
+  const nextYr = mo === 12 ? yr + 1 : yr;
+  const from = `${yr}-${p2(mo)}-11`;
+  const to = `${nextYr}-${p2(nextMo)}-10`;
   const days = [];
-  const prevEnd = new Date(prevYr, prevMo, 0).getDate();
-  for (let d = 11; d <= prevEnd; d++) {
-    days.push({ dateStr: `${prevYr}-${p2(prevMo)}-${p2(d)}`, day: d, dow: new Date(prevYr, prevMo - 1, d).getDay() });
+  const curEnd = new Date(yr, mo, 0).getDate();
+  for (let d = 11; d <= curEnd; d++) {
+    days.push({ dateStr: `${yr}-${p2(mo)}-${p2(d)}`, day: d, dow: new Date(yr, mo - 1, d).getDay() });
   }
   for (let d = 1; d <= 10; d++) {
-    days.push({ dateStr: `${yr}-${p2(mo)}-${p2(d)}`, day: d, dow: new Date(yr, mo - 1, d).getDay() });
+    days.push({ dateStr: `${nextYr}-${p2(nextMo)}-${p2(d)}`, day: d, dow: new Date(nextYr, nextMo - 1, d).getDay() });
   }
   return { from, to, days };
 }

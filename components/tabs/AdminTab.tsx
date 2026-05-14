@@ -610,7 +610,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button onClick={() => goMonth(-1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 6, backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec, display: "flex", alignItems: "center", justifyContent: "center" }}>◀</button>
-            <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 80, textAlign: "center" }}>{yr}年{mo}月{isSelPartAkashi && <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: T.textSec }}>（{mo === 1 ? 12 : mo - 1}/11〜{mo}/10）</span>}</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 80, textAlign: "center" }}>{yr}年{mo}月{isSelPartAkashi && <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: T.textSec }}>（{mo}/11〜{mo === 12 ? 1 : mo + 1}/10）</span>}</span>
             <button onClick={() => goMonth(1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 6, backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec, display: "flex", alignItems: "center", justifyContent: "center" }}>▶</button>
           </div>
         </div>

@@ -70,8 +70,17 @@ interface DialogState {
 /* ══════════════════════════════════════ */
 export default function AttendanceTab({ employee }: { employee: any }) {
   const now = new Date();
-  const [yr, setYr] = useState(now.getFullYear());
-  const [mo, setMo] = useState(now.getMonth() + 1);
+  const isAkashiPartInit = employee?.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID;
+  const [yr, setYr] = useState(() => {
+    if (isAkashiPartInit && now.getDate() <= 10 && now.getMonth() + 1 === 1) return now.getFullYear() - 1;
+    return now.getFullYear();
+  });
+  const [mo, setMo] = useState(() => {
+    if (isAkashiPartInit && now.getDate() <= 10) {
+      return now.getMonth() === 0 ? 12 : now.getMonth();
+    }
+    return now.getMonth() + 1;
+  });
   const [rows, setRows] = useState<any[]>([]);
   const [holidays, setHolidays] = useState<string[]>([]);
   const [scheduledMin, setScheduledMin] = useState<number>(0);
@@ -558,7 +567,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={() => go(-1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: "6px", backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec }}>◀</button>
-          <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 90, textAlign: "center" }}>{yr}年{mo}月{isAkashiPart && <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: T.textSec }}>（{mo === 1 ? 12 : mo - 1}/11〜{mo}/10）</span>}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 90, textAlign: "center" }}>{yr}年{mo}月{isAkashiPart && <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: T.textSec }}>（{mo}/11〜{mo === 12 ? 1 : mo + 1}/10）</span>}</span>
           <button onClick={() => go(1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: "6px", backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec }}>▶</button>
         </div>
       </div>
