@@ -243,7 +243,7 @@ export default function PunchTab({ employee }: { employee: any }) {
         employee.company_id === AKASHI_COMPANY_ID) {
       if (todayRecord?.break_minutes_self_reported === null ||
           todayRecord?.break_minutes_self_reported === undefined) {
-        alert('休憩を選択してください');
+        showAlert('休憩を選択してください');
         return;
       }
     }
