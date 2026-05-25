@@ -4,6 +4,7 @@ import { T, displayReason, displayChipLabel, isKoukyuPart, AKASHI_COMPANY_ID, ge
 import { Badge, ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
+import { notifyPush } from "@/lib/notifyPush";
 import { getPermLevel, canEditPunch } from "@/lib/permissions";
 import NotificationsSub from "@/components/tabs/NotificationsSub";
 import PaidLeaveSub from "@/components/tabs/PaidLeaveSub";
@@ -1360,6 +1361,7 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
   const [targetEmpId, setTargetEmpId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DocRow | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!employee?.company_id) return;
@@ -1400,9 +1402,29 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
       if (error) { setUploading(false); console.error("documents insert one err:", error); setDialogMsg("配布に失敗しました: " + error.message); return; }
       if (!ins || ins.length === 0) { setUploading(false); console.error("documents insert one 0 rows (RLS?)"); setDialogMsg("配布が保存できませんでした（権限設定の可能性）。管理者に連絡してください"); return; }
     }
+    const pushTargetIds = targetType === "all" ? emps.map(e => e.id) : [targetEmpId];
+    for (const eid of pushTargetIds) {
+      notifyPush("document_delivered", { employee_id: eid, document_name: docName });
+    }
     setUploading(false);
     setDialogMsg("配布しました");
     setShowForm(false); setDocName(""); setFile(null); setTargetEmpId(""); setTargetType("all");
+    fetchData();
+  };
+
+  const handleDeleteDoc = async (doc: DocRow) => {
+    const { error } = await supabase.from("documents").delete().eq("id", doc.id);
+    if (error) { setDeleteTarget(null); setDialogMsg("削除に失敗しました: " + error.message); return; }
+    const { count } = await supabase.from("documents").select("id", { count: "exact", head: true }).eq("file_url", doc.file_url);
+    if (count === 0) {
+      const urlParts = doc.file_url.split("/change-requests/");
+      if (urlParts.length === 2) {
+        const storagePath = decodeURIComponent(urlParts[1]);
+        await supabase.storage.from("change-requests").remove([storagePath]);
+      }
+    }
+    setDeleteTarget(null);
+    setDialogMsg("削除しました");
     fetchData();
   };
 
@@ -1441,13 +1463,14 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
                   <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.textSec }}>{d.emp_name}{d.emp_code !== "—" ? ` (${d.emp_code})` : ""}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.textMuted }}>{fmtDate(d.upload_date)}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center" }}>{d.confirmed_at ? <span style={{ color: T.success, fontWeight: 600, fontSize: 11 }}>✓ 済</span> : <span style={{ color: T.textMuted, fontSize: 11 }}>未確認</span>}</td>
-                  <td style={{ padding: "6px", textAlign: "center" }}><a href={d.file_url} target="_blank" rel="noopener noreferrer" style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.primary}`, backgroundColor: "#fff", color: T.primary, fontSize: 11, fontWeight: 600, textDecoration: "none", cursor: "pointer" }}>開く</a></td>
+                  <td style={{ padding: "6px", textAlign: "center", whiteSpace: "nowrap" }}><a href={d.file_url} target="_blank" rel="noopener noreferrer" style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.primary}`, backgroundColor: "#fff", color: T.primary, fontSize: 11, fontWeight: 600, textDecoration: "none", cursor: "pointer" }}>開く</a> <button onClick={() => setDeleteTarget(d)} style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.danger}`, backgroundColor: "#fff", color: T.danger, fontSize: 11, fontWeight: 600, cursor: "pointer", marginLeft: 4 }}>削除</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div></div>
       )}
+      {deleteTarget && <Dialog message={`「${deleteTarget.document_name}」（${deleteTarget.emp_name || "全員"}）を削除しますか？`} mode="confirm" confirmLabel="削除" confirmColor={T.danger} onOk={() => handleDeleteDoc(deleteTarget)} onCancel={() => setDeleteTarget(null)} />}
       {dialogMsg && <Dialog message={dialogMsg} onOk={() => setDialogMsg(null)} />}
     </div>
   );
