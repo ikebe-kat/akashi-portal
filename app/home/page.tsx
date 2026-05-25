@@ -159,7 +159,14 @@ export default function HomePage() {
 
 
   let TABS: { id: TabId; label: string }[];
-  if (perm === "super" && employee.employee_code !== "D67") {
+  if (perm === "super" && employee.employee_code === "D18") {
+    TABS = [
+      { id: "calendar", label: "カレンダー" },
+      { id: "roster",   label: "名簿" },
+      { id: "documents", label: "書類" },
+      { id: "admin",    label: "管理" },
+    ];
+  } else if (perm === "super" && employee.employee_code !== "D67") {
     TABS = [
       { id: "calendar", label: "カレンダー" },
       { id: "roster",   label: "名簿" },
