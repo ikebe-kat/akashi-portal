@@ -1367,7 +1367,7 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
     if (!employee?.company_id) return;
     setLoading(true);
     const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).order("employee_code");
-    const empData = (empDataRaw || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code));
+    const empData = (empDataRaw || []).filter((e: any) => e.employee_code !== "D02");
     const empList = (empData || []).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: "" }));
     setEmps(empList);
     const empMap: Record<string, { code: string; name: string }> = {};
