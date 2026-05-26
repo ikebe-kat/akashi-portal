@@ -52,6 +52,29 @@ export default function HomePage() {
   const [docsBadge, setDocsBadge] = useState(0);
   const [adminBadge, setAdminBadge] = useState(0);
 
+  const EMP_COLS = "id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)";
+
+  const refreshEmployee = useCallback(async () => {
+    const stored = localStorage.getItem("employee");
+    if (!stored) return;
+    let cached: any;
+    try { cached = JSON.parse(stored); } catch { return; }
+    if (!cached?.id) return;
+    try {
+      const { data } = await supabase.from("employees").select(EMP_COLS)
+        .eq("id", cached.id).maybeSingle();
+      if (data) {
+        const storeName = (data as any).stores?.store_name || cached.store_name || "";
+        const merged = { ...cached, ...data, store_name: storeName };
+        delete (merged as any).stores;
+        setEmployee(merged);
+        localStorage.setItem("employee", JSON.stringify(merged));
+      }
+    } catch (e) {
+      console.error("[home] refreshEmployee threw:", e);
+    }
+  }, []);
+
   useEffect(() => {
     const stored = localStorage.getItem("employee");
     if (!stored) {
@@ -61,8 +84,14 @@ export default function HomePage() {
     const emp = JSON.parse(stored);
     if (emp.role === "super" && emp.employee_code !== "D67") setTab("calendar");
     setEmployee(emp);
+    refreshEmployee();
+  }, [refreshEmployee]);
 
-  }, []);
+  useEffect(() => {
+    const onFocus = () => refreshEmployee();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshEmployee]);
 
   /* ── バッジ件数取得 ── */
   const fetchBadges = useCallback(async () => {
