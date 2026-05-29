@@ -166,6 +166,30 @@ export default function HomePage() {
 
   useEffect(() => { if (employee) fetchBadges(); }, [employee, fetchBadges]);
 
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const checkUpdate = () => {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg) reg.update().catch(() => {});
+      });
+    };
+    const onFocus = () => checkUpdate();
+    window.addEventListener("focus", onFocus);
+    const interval = setInterval(checkUpdate, 3 * 60 * 1000);
+    let refreshing = false;
+    const onControllerChange = () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(interval);
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+    };
+  }, []);
+
   /* Supabase Realtime: DB変更を即座に検知してバッジ更新 */
   useEffect(() => {
     if (!employee?.id) return;
