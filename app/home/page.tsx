@@ -130,7 +130,7 @@ export default function HomePage() {
     if (perm === "super" || perm === "admin") {
       // 管理対象従業員を取得
       const { data: allEmps } = await supabase.from("employees")
-        .select("id, store_id, department").eq("company_id", employee.company_id);
+        .select("id, store_id, department").eq("company_id", employee.company_id).eq("is_active", true);
 
       const myCode = employee.employee_code || "";
       const targetIds = (allEmps || [])

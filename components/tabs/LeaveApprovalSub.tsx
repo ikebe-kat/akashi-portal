@@ -42,7 +42,7 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     if (!employee?.company_id) return;
     setLoading(true);
     const { data: empData } = await supabase.from("employees").select("id, employee_code, full_name, store_id")
-      .eq("company_id", employee.company_id);
+      .eq("company_id", employee.company_id).eq("is_active", true);
     const { data: storeData } = await supabase.from("stores").select("id, store_name").eq("company_id", employee.company_id);
     const storeMap: Record<string, string> = {};
     (storeData || []).forEach((s: any) => { storeMap[s.id] = s.store_name || ""; });

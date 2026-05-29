@@ -49,7 +49,7 @@ export default function LoginPage() {
   const autoLogin = async (pgId: string) => {
     const { data, error } = await supabase
       .from('employees').select(EMP_COLS)
-      .eq('portal_group_id', pgId).eq('company_id', AKASHI_COMPANY_ID).maybeSingle()
+      .eq('portal_group_id', pgId).eq('company_id', AKASHI_COMPANY_ID).eq('is_active', true).maybeSingle()
     if (error || !data) { setChecking(false); return }
     await finishLogin(data)
     window.history.replaceState({}, '', '/')
@@ -62,7 +62,7 @@ export default function LoginPage() {
     const code = employeeCode.toUpperCase().trim()
     const { data, error: dbError } = await supabase
       .from('employees').select(EMP_COLS)
-      .eq('employee_code', code).eq('company_id', AKASHI_COMPANY_ID).maybeSingle()
+      .eq('employee_code', code).eq('company_id', AKASHI_COMPANY_ID).eq('is_active', true).maybeSingle()
     if (dbError) {
       setLoading(false)
       console.error('employees select error:', dbError)

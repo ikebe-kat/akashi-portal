@@ -476,7 +476,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
       setStores(storeList);
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
-      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).order("employee_code");
+      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
       setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "" })));
     })();
   }, [employee?.company_id]);
@@ -835,7 +835,7 @@ const DailySub = ({ employee }: { employee: any }) => {
       setStores(storeList);
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
-      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).order("employee_code");
+      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
       setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "" })));
     })();
   }, [employee?.company_id]);
@@ -1051,7 +1051,7 @@ const MonthlySub = ({ employee }: { employee: any }) => {
       setStores(storeList);
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
-      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).order("employee_code");
+      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
       setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "" })));
     })();
   }, [employee?.company_id]);
@@ -1235,7 +1235,7 @@ const RequestsSub = ({ employee }: { employee: any }) => {
   const fetchRequests = useCallback(async () => {
     if (!employee?.company_id) return;
     setLoading(true);
-    const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name").eq("company_id", employee.company_id);
+    const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name").eq("company_id", employee.company_id).eq("is_active", true);
     const empData = (empDataRaw || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code));
     const empMap: Record<string, { code: string; name: string }> = {};
     (empData || []).forEach((e: any) => { empMap[e.id] = { code: e.employee_code, name: e.full_name }; });
@@ -1366,7 +1366,7 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
   const fetchData = useCallback(async () => {
     if (!employee?.company_id) return;
     setLoading(true);
-    const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).order("employee_code");
+    const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
     const empData = (empDataRaw || []).filter((e: any) => e.employee_code !== "D02");
     const empList = (empData || []).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: "" }));
     setEmps(empList);
