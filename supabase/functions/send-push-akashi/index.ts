@@ -80,7 +80,7 @@ serve(async (req) => {
 
     async function getEmpsAndStores(companyId: string) {
       const { data: allEmps } = await sb.from("employees")
-        .select("id, employee_code, full_name, store_id, department, employment_type, holiday_calendar")
+        .select("id, employee_code, full_name, store_id, department, employment_type, holiday_calendar, requires_punch")
         .eq("company_id", companyId)
         .eq("is_active", true);
       const { data: stores } = await sb.from("stores")
@@ -234,21 +234,31 @@ serve(async (req) => {
 
     // ============================
     // 5. 打刻アラート（バッチ: 毎朝9:10）
+    //   種別判定: employee_payroll_config.shift_type（off=公休登録型/work=出勤登録型）
+    //            ＋ employment_type（正社員/パート）。対象日＝前日(JST)。
     // ============================
     if (type === "attendance_alert") {
       const { company_id, target_date } = payload;
 
       const { allEmps, storeMap } = await getEmpsAndStores(company_id);
-
       const empIds = allEmps.map((e: any) => e.id);
+
+      // 打刻データ
       const { data: attData } = await sb.from("attendance_daily")
         .select("employee_id, punch_in, punch_out, reason, is_holiday")
         .eq("attendance_date", target_date)
         .in("employee_id", empIds);
-
       const attMap: Record<string, any> = {};
       (attData || []).forEach((r: any) => { attMap[r.employee_id] = r; });
 
+      // パート種別（shift_type: off=公休登録型 / work=出勤登録型）
+      const { data: pcData } = await sb.from("employee_payroll_config")
+        .select("employee_id, shift_type")
+        .in("employee_id", empIds);
+      const shiftTypeMap: Record<string, string> = {};
+      (pcData || []).forEach((p: any) => { shiftTypeMap[p.employee_id] = p.shift_type; });
+
+      // 会社カレンダー（定休日）
       const empCalMap: Record<string, string> = {};
       allEmps.forEach((e: any) => { if (e.holiday_calendar) empCalMap[e.id] = e.holiday_calendar; });
       const calTypes = [...new Set(Object.values(empCalMap))];
@@ -261,78 +271,87 @@ serve(async (req) => {
         (hcData || []).forEach((h: any) => { holidayCalSet.add(h.calendar_type); });
       }
 
-      const unpunched: { id: string; code: string; name: string; storeName: string; department: string }[] = [];
       const dateShort = shortDate(target_date);
 
-      const isAkashi = company_id === "e85e40ac-71f7-4918-b2fc-36d877337b74";
+      // 出勤すべき日から除外する「休み事由」
+      const isLeaveReason = (rs: string | null) =>
+        !!rs && (rs.includes("有給") || rs.includes("選択休") || rs.includes("代休") ||
+                 rs === "欠勤" || rs === "公休" || rs === "休職" || rs === "休日");
+
+      const unpunched: { id: string; code: string; name: string; storeId: string }[] = [];
+
       for (const emp of allEmps) {
-        const isPart = emp.employment_type?.includes("パート");
-        if (isPart && !isAkashi) continue; // KAT/WCのパートは除外
-        // D02は完全除外
-        if (emp.employee_code === "D02") continue;
+        if (emp.employee_code?.startsWith("test")) continue; // テスト社員除外
+        if (emp.employee_code === "D02") continue;            // 代表除外
+        if (!emp.requires_punch) continue;                    // 打刻不要者（本部役員等）除外
 
         const att = attMap[emp.id];
+        const hasIn = !!att?.punch_in;
+        const hasOut = !!att?.punch_out;
 
-        // 明石西パート: シフト登録済み（attレコードあり）の日のみチェック
-        if (isPart && isAkashi && !att) continue;
-
-        if (att?.is_holiday) continue;
-        const empCal = empCalMap[emp.id];
-        if (empCal && holidayCalSet.has(empCal)) continue;
-
-        if (att?.reason) {
-          const rs = att.reason;
-          const isFullDayOff = rs === "有給（全日）" || rs === "選択休（全日）" || rs === "欠勤" || rs === "休日" || rs === "公休" || rs === "休職" || (rs.includes("代休") && !rs.includes("午前") && !rs.includes("午後"));
-          if (isFullDayOff) continue;
+        let miss = false;
+        if (hasIn !== hasOut) {
+          // ① 片方だけ打刻 → 種別・定休・事由に関係なく漏れ
+          miss = true;
+        } else if (!hasIn && !hasOut) {
+          // ② 両方とも無い → 「出勤すべき日」の人だけ漏れ
+          if (att?.is_holiday) {
+            miss = false;
+          } else {
+            const isPart = (emp.employment_type || "").includes("パート");
+            const shiftType = shiftTypeMap[emp.id];
+            const isHolidayCal = empCalMap[emp.id] ? holidayCalSet.has(empCalMap[emp.id]) : false;
+            if (isPart && shiftType === "work") {
+              // 出勤登録型パート：本人が登録した出勤日(reason=出勤)のみ
+              miss = att?.reason === "出勤";
+            } else {
+              // 正社員 ＆ 公休登録型パート：定休日でなく休み事由が無い日
+              miss = !isHolidayCal && !isLeaveReason(att?.reason ?? null);
+            }
+          }
         }
 
-        const noPunchIn = !att || !att.punch_in;
-        const noPunchOut = !att || !att.punch_out;
-
-        if (noPunchIn || noPunchOut) {
+        if (miss) {
           unpunched.push({
             id: emp.id,
             code: emp.employee_code,
             name: emp.full_name,
-            storeName: storeMap[emp.store_id] || "",
-            department: emp.department || "",
+            storeId: emp.store_id,
           });
         }
       }
 
-      // 本人への通知（D02, D49は除外）
+      // 本人への通知
       for (const u of unpunched) {
-        if (NO_NOTIFY_CODES.includes(u.code)) continue;
-        if (CALENDAR_ONLY_CODES.includes(u.code)) continue;
         targets.push({
           employee_id: u.id,
-          title: "打刻漏れがあります",
-          body: `${dateShort}の出退勤が未登録です`,
+          title: `${dateShort}分 打刻漏れ`,
+          body: `${dateShort}の打刻漏れを店長に修正依頼してください。`,
           tag: "attendance-alert",
           url: "/home",
         });
       }
 
-      // 管理者への通知
+      // 管理者への通知（自店の未打刻者ぶん／専務・池邉は全員ぶん）
+      const STORE_UOZUMI = "0141e0fe-9014-4df5-8229-f2a85dc481bc";
+      const STORE_OKUBO = "7336dda2-b23d-484c-a3fd-e79297832828";
       const managers: { code: string; filter: (u: any) => boolean }[] = [
-        { code: "DA002", filter: (u) => u.storeName.includes("大久保") },
-        { code: "DA001", filter: (u) => u.storeName.includes("魚住") },
-        { code: "D18", filter: () => true },
-        { code: "D67", filter: () => true },
+        { code: "DA001", filter: (u) => u.storeId === STORE_UOZUMI }, // 魚住店長 雨宮
+        { code: "DA002", filter: (u) => u.storeId === STORE_OKUBO },  // 大久保店長 押谷
+        { code: "D18", filter: () => true },                          // 専務
+        { code: "D67", filter: () => true },                          // 池邉
       ];
 
       for (const mgr of managers) {
         const mgrEmp = allEmps.find((e: any) => e.employee_code === mgr.code);
         if (!mgrEmp) continue;
-        const mgrUnpunched = unpunched.filter(mgr.filter);
-        if (mgrUnpunched.length === 0) continue;
-
-        const names = mgrUnpunched.slice(0, 5).map(u => lastName(u.name)).join("、");
-        const suffix = mgrUnpunched.length > 5 ? `、他${mgrUnpunched.length - 5}名` : "";
-
+        const list = unpunched.filter(mgr.filter);
+        if (list.length === 0) continue;
+        const names = list.slice(0, 5).map((u) => lastName(u.name)).join("、");
+        const suffix = list.length > 5 ? `、他${list.length - 5}名` : "";
         targets.push({
           employee_id: mgrEmp.id,
-          title: `未打刻 ${mgrUnpunched.length}名（${dateShort}）`,
+          title: `未打刻 ${list.length}名（${dateShort}）`,
           body: `${names}${suffix}`,
           tag: "attendance-alert-mgr",
           url: "/home",
