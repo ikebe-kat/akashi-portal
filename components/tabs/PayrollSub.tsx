@@ -279,6 +279,95 @@ export default function PayrollSub({ employee }: { employee: any }) {
     setShowHistory(true);
   };
 
+  const exportExcel = async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("給与");
+    ws.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1 };
+
+    const thinBorder: any = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    const hdrFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDDDDD" } };
+    const totalFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE9ECEF" } };
+    const boldFont: any = { bold: true, size: 10, name: "Yu Gothic" };
+    const normFont: any = { size: 10, name: "Yu Gothic" };
+    const titleFont: any = { bold: true, size: 12, name: "Yu Gothic" };
+
+    const allFt = rows.filter((r: any) => r.employment_type !== "パート");
+    const allPt = rows.filter((r: any) => r.employment_type === "パート");
+    const allFtTotal = allFt.reduce((s: number, r: any) => s + (r.total_payment || 0), 0);
+    const allPtTotal = allPt.reduce((s: number, r: any) => s + (r.total_payment || 0), 0);
+
+    const writeTable = (startRow: number, title: string, cols: typeof FT_COLS, data: any[], total: number) => {
+      let r = startRow;
+      ws.getCell(r, 1).value = title;
+      ws.getCell(r, 1).font = titleFont;
+      r++;
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(r, i + 1);
+        cell.value = c.label;
+        cell.font = boldFont;
+        cell.alignment = { horizontal: "center" };
+        cell.border = thinBorder;
+        cell.fill = hdrFill;
+      });
+      r++;
+      for (const row of data) {
+        cols.forEach((c, i) => {
+          const cell = ws.getCell(r, i + 1);
+          const val = row[c.key];
+          if (c.key === "employee_code" || c.key === "full_name") {
+            cell.value = val || "";
+            cell.alignment = { horizontal: "left" };
+          } else {
+            cell.value = val != null ? Number(val) : 0;
+            cell.alignment = { horizontal: "right" };
+            if (!c.key.includes("minutes") && c.key !== "work_days" && c.key !== "paid_leave_days")
+              cell.numFmt = "#,##0";
+          }
+          cell.font = normFont;
+          cell.border = thinBorder;
+        });
+        r++;
+      }
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(r, i + 1);
+        if (i === 0) { cell.value = "合計"; cell.alignment = { horizontal: "left" }; }
+        else if (c.key === "total_payment") { cell.value = total; cell.alignment = { horizontal: "right" }; cell.numFmt = "#,##0"; }
+        else { cell.value = null; }
+        cell.font = boldFont;
+        cell.border = thinBorder;
+        cell.fill = totalFill;
+      });
+      return r + 1;
+    };
+
+    let r = 1;
+    r = writeTable(r, `正社員（月給制）　期間: ${periods.ft}`, FT_COLS, allFt, allFtTotal);
+    r += 2;
+    writeTable(r, `パート（時給制）　期間: ${periods.pt}`, PT_COLS, allPt, allPtTotal);
+
+    const maxCols = Math.max(FT_COLS.length, PT_COLS.length);
+    for (let i = 0; i < maxCols; i++) {
+      const ftW = i < FT_COLS.length ? FT_COLS[i].width : 80;
+      const ptW = i < PT_COLS.length ? PT_COLS[i].width : 80;
+      ws.getColumn(i + 1).width = Math.max(ftW, ptW) / 6;
+    }
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const [fy, fm] = yearMonth.split("-").map(Number);
+    const fpm = fm === 1 ? 12 : fm - 1;
+    const fpy = fm === 1 ? fy - 1 : fy;
+    a.download = `明石西_給与_${fpy}-${String(fpm).padStart(2, "0")}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const matchStore = (r: any) => {
     if (storeFilter === "all") return true;
     return (r.store_name || "").includes(storeFilter);
@@ -341,10 +430,15 @@ export default function PayrollSub({ employee }: { employee: any }) {
               color: storeFilter === f.value ? T.primary : T.textSec,
             }}>{f.label}</button>
           ))}
+          <button onClick={exportExcel} disabled={rows.length === 0} style={{
+            padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600,
+            cursor: rows.length === 0 ? "not-allowed" : "pointer", border: "2px solid #0D6EFD",
+            backgroundColor: "#0D6EFD15", color: "#0D6EFD", marginLeft: "auto",
+          }}>Excel出力</button>
           <button onClick={loadHistory} style={{
             padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600,
             cursor: "pointer", border: "2px solid #7C3AED",
-            backgroundColor: "#7C3AED15", color: "#7C3AED", marginLeft: "auto",
+            backgroundColor: "#7C3AED15", color: "#7C3AED",
           }}>変更履歴</button>
         </div>
       )}
