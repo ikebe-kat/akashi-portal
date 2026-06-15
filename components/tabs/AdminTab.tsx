@@ -14,11 +14,12 @@ import SettingsSub from "@/components/tabs/SettingsSub";
 import LeaveApprovalSub from "@/components/tabs/LeaveApprovalSub";
 import PayrollSub from "@/components/tabs/PayrollSub";
 import ShiftSub from "@/components/tabs/ShiftSub";
+import EntryApplicationsSub from "@/components/tabs/EntryApplicationsSub";
 
 interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; employment_type: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; break_minutes_self_reported: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
 
-type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "settings" | "payroll" | "shift";
+type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "entry_applications" | "settings" | "payroll" | "shift";
 const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "super_only" | "all" }[] = [
   { id: "notifications", label: "お知らせ", visibleTo: "owner_or_kondo" },
   { id: "paidleave", label: "有給管理", visibleTo: "owner_or_kondo" },
@@ -30,6 +31,7 @@ const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "supe
   { id: "requests", label: "申請管理", visibleTo: "super_only" },
   { id: "documents", label: "書類配布", visibleTo: "super_only" },
   { id: "employee_manage", label: "従業員管理", visibleTo: "super_only" },
+  { id: "entry_applications", label: "入社申請", visibleTo: "super_only" },
   { id: "settings", label: "設定", visibleTo: "owner_only" },
   { id: "payroll", label: "給与計算", visibleTo: "owner_only" },
   { id: "shift", label: "シフト管理", visibleTo: "all" },
@@ -1486,7 +1488,7 @@ const MAIN_MENU: MainMenuItem[] = [
   { id: "monthly", label: "月次サマリ", directTab: "monthly" },
   { id: "settings", label: "設定", directTab: "settings" },
   { id: "g_payroll", label: "給与処理", subTabs: ["payroll", "sharoushi"] },
-  { id: "g_info", label: "情報管理", subTabs: ["requests", "documents", "employee_manage"] },
+  { id: "g_info", label: "情報管理", subTabs: ["requests", "documents", "employee_manage", "entry_applications"] },
 ];
 
 const TwoRowMenu = ({ visibleTabs, sub, setSub }: { visibleTabs: { id: SubTab; label: string }[]; sub: SubTab; setSub: (s: SubTab) => void }) => {
@@ -1587,6 +1589,7 @@ export default function AdminTab({ employee }: { employee: any }) {
       {sub === "requests" && <RequestsSub employee={employee} />}
       {sub === "documents" && <DocumentsSub employee={employee} />}
       {sub === "employee_manage" && <EmployeeManageSub employee={employee} />}
+      {sub === "entry_applications" && <EntryApplicationsSub employee={employee} />}
       {sub === "settings" && <SettingsSub employee={employee} />}
       {sub === "payroll" && <PayrollSub employee={employee} />}
       {sub === "shift" && <ShiftSub employee={employee} />}
