@@ -4,6 +4,8 @@ import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 
+const HONBU_CODES = ["D02", "D18", "D49", "D67"];
+
 const REASON_MAP: Record<string, string> = {
   "選択休（全日）": "公休", "午前選択休": "公前", "午後選択休": "公後",
   "有給（全日）": "有休", "午前有給": "前休", "午後有給": "後休", "休日出勤": "休出",
@@ -70,10 +72,11 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         .eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
       if (empErr) throw empErr;
       if (!empRaw?.length) { setDialogMsg("従業員データがありません"); return; }
+      const empFiltered = empRaw.filter((e: any) => !HONBU_CODES.includes(e.employee_code));
 
       const { data: stRaw } = await supabase.from("stores").select("id, store_code, store_name").eq("company_id", employee.company_id);
       const stMap = new Map((stRaw || []).map((s: any) => [s.id, { code: s.store_code || "000", name: s.store_name || "指定なし" }]));
-      const emps: EmpD[] = empRaw.map((e: any) => { const st = stMap.get(e.store_id) || { code: "000", name: "指定なし" }; return { ...e, store_code: st.code, store_name: st.name }; });
+      const emps: EmpD[] = empFiltered.map((e: any) => { const st = stMap.get(e.store_id) || { code: "000", name: "指定なし" }; return { ...e, store_code: st.code, store_name: st.name }; });
 
       setProgress("勤怠データ取得中...");
       const regularRange = getDateRange(selYear, selMonth, false);
