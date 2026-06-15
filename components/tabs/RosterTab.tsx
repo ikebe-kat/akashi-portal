@@ -484,11 +484,14 @@ export default function RosterTab({ employee }: { employee: any }) {
       .eq("is_active", true)
       .order("employee_code");
 
-    const mapped: EmpRecord[] = (empData || []).map((e: any) => {
-      const rawStoreName = storeNameMap[e.store_id] || "";
-      const { short, groupId } = resolveStore(rawStoreName);
-      return { ...e, store_short: short, group_id: groupId };
-    });
+    const today = new Date().toISOString().slice(0, 10);
+    const mapped: EmpRecord[] = (empData || [])
+      .filter((e: any) => !e.hire_date || e.hire_date <= today)
+      .map((e: any) => {
+        const rawStoreName = storeNameMap[e.store_id] || "";
+        const { short, groupId } = resolveStore(rawStoreName);
+        return { ...e, store_short: short, group_id: groupId };
+      });
 
     setAllEmps(mapped);
     setLoading(false);

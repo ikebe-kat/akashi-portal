@@ -76,6 +76,7 @@ function calculateFulltime(
 ): PayrollResult {
   const dailyDetails: DailyCalc[] = [];
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, absenceDays = 0, workDays = 0;
+  let paidLeaveDays = 0;
   const warnings: string[] = [];
   const dates = getDateRange(period.start, period.end);
 
@@ -105,7 +106,8 @@ function calculateFulltime(
         }
       }
     } else if (hasLeave) {
-      // 有給: 欠勤にしない
+      if (record?.reason?.includes('有給（全日）')) paidLeaveDays += 1;
+      else if (record?.reason?.includes('午前有給') || record?.reason?.includes('午後有給')) paidLeaveDays += 0.5;
     } else if (record?.punch_in && record?.punch_out) {
       const mins = calcWorkMinutes(record.punch_in, record.punch_out, 60);
       daily.workMinutes = mins; totalWorkMinutes += mins; workDays++;
@@ -171,7 +173,8 @@ function calculateFulltime(
     qualification_allowance: qualificationAllowance, commute_allowance: commuteAllowance,
     dependent_allowance: dependentAllowance, fixed_overtime_amount: fixedOvertimeAmount,
     excess_overtime_amount: excessOvertimeAmount, adjustment_amount: adjustmentAmount,
-    absence_deduction: absenceDeduction, gross_total: grossTotal,
+    absence_deduction: absenceDeduction, paid_leave_days: paidLeaveDays, paid_leave_amount: 0,
+    gross_total: grossTotal,
     has_warning: warnings.length > 0, warning_details: warnings,
     is_manual_adjusted: false, daily_details: dailyDetails,
   };
@@ -188,6 +191,7 @@ function calculateParttime(
   const dailyDetails: DailyCalc[] = [];
   let weekdayMinutes = 0, saturdayMinutes = 0, sundayMinutes = 0;
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, workDays = 0;
+  let paidLeaveDays = 0, paidLeaveAmount = 0;
   const warnings: string[] = [];
   const rateWeekday = emp.hourly_rate_weekday || 0;
   const rateSaturday = emp.hourly_rate_saturday || rateWeekday;
@@ -227,6 +231,13 @@ function calculateParttime(
       daily.warningMessage = `${dateStr}: 退勤打刻漏れ`;
       warnings.push(daily.warningMessage);
     }
+    if (record?.reason?.includes('有給（全日）')) {
+      paidLeaveDays += 1;
+      paidLeaveAmount += Math.round((record.scheduled_hours || 0) * rateWeekday);
+    } else if (record?.reason?.includes('午前有給') || record?.reason?.includes('午後有給')) {
+      paidLeaveDays += 0.5;
+      paidLeaveAmount += Math.round(((record.scheduled_hours || 0) / 2) * rateWeekday);
+    }
     dailyDetails.push(daily);
   }
 
@@ -234,7 +245,7 @@ function calculateParttime(
     (weekdayMinutes / 60) * rateWeekday + (saturdayMinutes / 60) * rateSaturday + (sundayMinutes / 60) * rateSunday
   );
   const commuteAllowance = emp.commute_allowance > 0 ? Math.round((emp.commute_allowance / PART_COMMUTE_DIVISOR) * workDays) : 0;
-  const grossTotal = baseSalary + commuteAllowance + adjustmentAmount;
+  const grossTotal = baseSalary + commuteAllowance + adjustmentAmount + paidLeaveAmount;
 
   return {
     employee_id: emp.employee_id, employee_code: emp.employee_code,
@@ -248,6 +259,7 @@ function calculateParttime(
     base_salary: baseSalary, position_allowance: 0, qualification_allowance: 0,
     commute_allowance: commuteAllowance, dependent_allowance: 0, fixed_overtime_amount: 0,
     excess_overtime_amount: 0, adjustment_amount: adjustmentAmount, absence_deduction: 0,
+    paid_leave_days: paidLeaveDays, paid_leave_amount: paidLeaveAmount,
     gross_total: grossTotal, has_warning: warnings.length > 0, warning_details: warnings,
     is_manual_adjusted: false, daily_details: dailyDetails,
   };
@@ -309,6 +321,7 @@ function createZeroResult(emp: PayrollConfig, yearMonth: string, fp: { start: st
     base_salary: 0, position_allowance: 0, qualification_allowance: 0,
     commute_allowance: 0, dependent_allowance: 0, fixed_overtime_amount: 0,
     excess_overtime_amount: 0, adjustment_amount: 0, absence_deduction: 0,
+    paid_leave_days: 0, paid_leave_amount: 0,
     gross_total: 0, has_warning: false, warning_details: [],
     is_manual_adjusted: false, daily_details: [],
   };
@@ -359,7 +372,7 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
 
 async function fetchAttendance(start: string, end: string): Promise<AttendanceRecord[]> {
   const { data, error } = await supabase.from('attendance_daily')
-    .select('id, employee_id, attendance_date, punch_in, punch_out, break_minutes, break_minutes_self_reported, reason, is_holiday')
+    .select('id, employee_id, attendance_date, punch_in, punch_out, break_minutes, break_minutes_self_reported, reason, is_holiday, scheduled_hours')
     .eq('company_id', AKASHI_COMPANY_ID).gte('attendance_date', start).lte('attendance_date', end);
   if (error) throw new Error(`勤怠データ取得エラー: ${error.message}`);
   return data || [];
@@ -375,7 +388,7 @@ async function fetchHolidays(start: string, end: string): Promise<Set<string>> {
 async function fetchLeaveRequests(start: string, end: string): Promise<LeaveRecord[]> {
   const { data, error } = await supabase.from('leave_requests')
     .select('employee_id, attendance_date, reason')
-    .eq('company_id', AKASHI_COMPANY_ID).eq('status', 'approved').gte('attendance_date', start).lte('attendance_date', end);
+    .eq('company_id', AKASHI_COMPANY_ID).eq('status', '承認').gte('attendance_date', start).lte('attendance_date', end);
   if (error) throw new Error(`有給データ取得エラー: ${error.message}`);
   return data || [];
 }
@@ -406,7 +419,8 @@ export async function savePayrollResults(results: PayrollResult[], yearMonth: st
     overtime_pay: r.excess_overtime_amount, adjustment_allowance: r.adjustment_amount,
     absence_deduction: r.absence_deduction, total_payment: r.gross_total,
     work_days: r.work_days, actual_work_minutes: r.total_work_minutes,
-    overtime_minutes: r.overtime_minutes, absence_days: r.absence_days, paid_leave_days: 0,
+    overtime_minutes: r.overtime_minutes, absence_days: r.absence_days,
+    paid_leave_days: r.paid_leave_days, paid_leave_amount: r.paid_leave_amount || 0,
     hourly_weekday_minutes: r.weekday_minutes, hourly_saturday_minutes: r.saturday_minutes,
     hourly_sunday_minutes: r.sunday_minutes, overtime_exceeded: r.excess_overtime_amount > 0,
     calculated_at: new Date().toISOString(),

@@ -39,6 +39,7 @@ export interface AttendanceRecord {
   break_minutes_self_reported: number | null; // パート申告
   reason: string | null;                     // 事由（有給/代休/欠勤等）
   is_holiday: boolean | null;
+  scheduled_hours: number | null;            // 所定労働時間（トリガー算出）
 }
 
 export interface DailyCalc {
@@ -97,6 +98,10 @@ export interface PayrollResult {
 
   // 控除
   absence_deduction: number;
+
+  // 有給
+  paid_leave_days: number;
+  paid_leave_amount: number;
 
   // 合計
   gross_total: number;
