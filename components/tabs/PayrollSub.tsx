@@ -597,9 +597,9 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
                   if (isEditing && c.editable) {
                     return (
                       <td key={c.key} style={{ padding: 0, borderRight: "1px solid #eee", ...stickyTdStyle(c.key, "#fffde7") }}>
-                        <input autoFocus type="number" value={val || 0}
+                        <input autoFocus type="number" value={val === 0 || val === "0" ? "" : val}
                           onChange={e => onChange(globalIdx, c.key, e.target.value)}
-                          onBlur={() => setEditingCell(null)}
+                          onBlur={e => { if (e.target.value === "") onChange(globalIdx, c.key, "0"); setEditingCell(null); }}
                           onKeyDown={e => { if (e.key === "Enter" || e.key === "Tab") setEditingCell(null); }}
                           style={{ width: "100%", padding: "6px 4px", border: `2px solid ${T.primary}`, borderRadius: 0, textAlign: "right", fontSize: 12, outline: "none", boxSizing: "border-box", backgroundColor: "#fffde7" }}
                         />
