@@ -291,7 +291,13 @@ function getDateRange(start: string, end: string): string[] {
   const dates: string[] = [];
   const current = new Date(start + 'T00:00:00');
   const endDate = new Date(end + 'T00:00:00');
-  while (current <= endDate) { dates.push(current.toISOString().split('T')[0]); current.setDate(current.getDate() + 1); }
+  while (current <= endDate) {
+    const y = current.getFullYear();
+    const m = String(current.getMonth() + 1).padStart(2, '0');
+    const d = String(current.getDate()).padStart(2, '0');
+    dates.push(`${y}-${m}-${d}`);
+    current.setDate(current.getDate() + 1);
+  }
   return dates;
 }
 
