@@ -20,6 +20,9 @@ export interface PayrollConfig {
   fixed_overtime_hours: number;
   salary_grade: string | null; // S/A/B/C/D
 
+  // 休日カレンダー種別
+  holiday_calendar: string | null;
+
   // パート用（曜日別時給）
   hourly_rate_weekday: number | null;
   hourly_rate_saturday: number | null;

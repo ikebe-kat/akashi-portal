@@ -28,7 +28,7 @@ export async function calculateAll(params: PayrollCalcParams): Promise<PayrollRe
   const parttimePeriod = getParttimePeriod(yearMonth);
 
   const employees = await fetchEmployeesWithConfig();
-  const holidays = await fetchHolidays(fulltimePeriod.start, fulltimePeriod.end);
+  const holidaysByType = await fetchHolidays(fulltimePeriod.start, fulltimePeriod.end);
 
   const allStart = fulltimePeriod.start < parttimePeriod.start ? fulltimePeriod.start : parttimePeriod.start;
   const allEnd = fulltimePeriod.end > parttimePeriod.end ? fulltimePeriod.end : parttimePeriod.end;
@@ -39,7 +39,6 @@ export async function calculateAll(params: PayrollCalcParams): Promise<PayrollRe
   const results: PayrollResult[] = [];
 
   for (const emp of employees) {
-    // KAT WORLD側で給与処理する本部メンバーはスキップ
     if (EXCLUDE_CODES.includes(emp.employee_code)) continue;
 
     if (!emp.requires_punch) {
@@ -57,8 +56,9 @@ export async function calculateAll(params: PayrollCalcParams): Promise<PayrollRe
     if (isParttime) {
       results.push(calculateParttime(emp, period, empAttendance, empLeaves, yearMonth, adjustmentAmount));
     } else {
-      const monthlyStandardHours = calculateMonthlyStandardHours(holidays, fulltimePeriod);
-      results.push(calculateFulltime(emp, period, empAttendance, empLeaves, holidays, yearMonth, monthlyStandardHours, adjustmentAmount));
+      const empHolidays = holidaysByType.get(emp.holiday_calendar || '') || new Set<string>();
+      const monthlyStandardHours = calculateMonthlyStandardHours(empHolidays, fulltimePeriod);
+      results.push(calculateFulltime(emp, period, empAttendance, empLeaves, empHolidays, yearMonth, monthlyStandardHours, adjustmentAmount));
     }
   }
 
@@ -348,7 +348,7 @@ interface LeaveRecord { employee_id: string; attendance_date: string; reason: st
 async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
   const { data, error } = await supabase
     .from('employees')
-    .select(`id, employee_code, full_name, employment_type, store_id, is_active, requires_punch,
+    .select(`id, employee_code, full_name, employment_type, store_id, is_active, requires_punch, holiday_calendar,
       employee_payroll_config ( rank, base_salary_override, position_allowance_override, qualifications, dependents_count, commute_distance_km, fixed_overtime_amount, hourly_wage_weekday, hourly_wage_saturday, hourly_wage_sunday )`)
     .eq('company_id', AKASHI_COMPANY_ID).eq('is_active', true);
   if (error) throw new Error(`従業員データ取得エラー: ${error.message}`);
@@ -372,7 +372,7 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
     return {
       employee_id: e.id, employee_code: e.employee_code, employee_name: e.full_name,
       employment_type: e.employment_type, store_id: e.store_id, is_active: e.is_active,
-      requires_punch: e.requires_punch ?? true,
+      requires_punch: e.requires_punch ?? true, holiday_calendar: e.holiday_calendar || null,
       base_salary: c.base_salary_override || 0, position_allowance: c.position_allowance_override || 0,
       qualification_allowance: calcQual(c.qualifications), commute_allowance: calcCommute(c.commute_distance_km),
       dependent_allowance: calcDep(c.dependents_count), fixed_overtime_amount: c.fixed_overtime_amount || 0,
@@ -391,11 +391,16 @@ async function fetchAttendance(start: string, end: string): Promise<AttendanceRe
   return data || [];
 }
 
-async function fetchHolidays(start: string, end: string): Promise<Set<string>> {
+async function fetchHolidays(start: string, end: string): Promise<Map<string, Set<string>>> {
   const { data, error } = await supabase.from('holiday_calendars')
-    .select('holiday_date').eq('company_id', AKASHI_COMPANY_ID).gte('holiday_date', start).lte('holiday_date', end);
+    .select('holiday_date, calendar_type').eq('company_id', AKASHI_COMPANY_ID).gte('holiday_date', start).lte('holiday_date', end);
   if (error) throw new Error(`休日カレンダー取得エラー: ${error.message}`);
-  return new Set((data || []).map((d: any) => d.holiday_date));
+  const byType = new Map<string, Set<string>>();
+  for (const d of (data || [])) {
+    if (!byType.has(d.calendar_type)) byType.set(d.calendar_type, new Set());
+    byType.get(d.calendar_type)!.add(d.holiday_date);
+  }
+  return byType;
 }
 
 async function fetchLeaveRequests(start: string, end: string): Promise<LeaveRecord[]> {
