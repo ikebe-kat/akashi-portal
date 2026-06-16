@@ -48,8 +48,22 @@ const FT_COLS: { key: string; label: string; editable: boolean; width: number }[
   { key: "total_payment", label: "支給合計", editable: false, width: 100 },
 ];
 
-// パート用のカラム定義
-const PT_COLS: { key: string; label: string; editable: boolean; width: number }[] = [
+// パート用カラム定義（統一時給：平日/土/日が同じ→時間1本）
+const PT_UNIFIED_COLS: { key: string; label: string; editable: boolean; width: number }[] = [
+  { key: "employee_code", label: "コード", editable: false, width: 70 },
+  { key: "full_name", label: "氏名", editable: false, width: 100 },
+  { key: "work_days", label: "出勤", editable: false, width: 50 },
+  { key: "paid_leave_days", label: "有給日", editable: false, width: 50 },
+  { key: "paid_leave_amount", label: "有給額", editable: true, width: 80 },
+  { key: "hourly_weekday_minutes", label: "労働時間", editable: true, width: 75 },
+  { key: "hourly_rate_weekday", label: "時給", editable: true, width: 75 },
+  { key: "base_salary", label: "基本給", editable: false, width: 90 },
+  { key: "commute_allowance", label: "通勤手当", editable: true, width: 80 },
+  { key: "adjustment_allowance", label: "調整手当", editable: true, width: 80 },
+  { key: "total_payment", label: "支給合計", editable: false, width: 100 },
+];
+// パート用カラム定義（分割時給：曜日別に時間・時給を表示）
+const PT_SPLIT_COLS: { key: string; label: string; editable: boolean; width: number }[] = [
   { key: "employee_code", label: "コード", editable: false, width: 70 },
   { key: "full_name", label: "氏名", editable: false, width: 100 },
   { key: "work_days", label: "出勤", editable: false, width: 50 },
@@ -449,6 +463,17 @@ export default function PayrollSub({ employee }: { employee: any }) {
   const ftTotal = ftRows.reduce((s, r) => s + (r.total_payment || 0), 0);
   const ptTotal = ptRows.reduce((s, r) => s + (r.total_payment || 0), 0);
 
+  const isSplitRate = (r: any) => {
+    const wd = r.hourly_rate_weekday || 0;
+    const sat = r.hourly_rate_saturday || wd;
+    const sun = r.hourly_rate_sunday || wd;
+    return sat !== wd || sun !== wd;
+  };
+  const ptUnified = ptRows.filter(r => !isSplitRate(r));
+  const ptSplit = ptRows.filter(r => isSplitRate(r));
+  const ptUnifiedTotal = ptUnified.reduce((s, r) => s + (r.total_payment || 0), 0);
+  const ptSplitTotal = ptSplit.reduce((s, r) => s + (r.total_payment || 0), 0);
+
   const STORE_FILTERS = [
     { label: "全店舗", value: "all" },
     { label: "大久保店", value: "大久保" },
@@ -526,7 +551,14 @@ export default function PayrollSub({ employee }: { employee: any }) {
       {ptRows.length > 0 && (
         <>
           <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, marginTop: 24 }}>パート（時給制）</h3>
-          <SpreadTable cols={PT_COLS} data={ptRows} allRows={rows} editingCell={editingCell} setEditingCell={setEditingCell} onChange={handleCellChange} total={ptTotal} />
+          {ptUnified.length > 0 && (
+            <SpreadTable cols={PT_UNIFIED_COLS} data={ptUnified} allRows={rows} editingCell={editingCell} setEditingCell={setEditingCell} onChange={handleCellChange} total={ptUnifiedTotal} />
+          )}
+          {ptSplit.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <SpreadTable cols={PT_SPLIT_COLS} data={ptSplit} allRows={rows} editingCell={editingCell} setEditingCell={setEditingCell} onChange={handleCellChange} total={ptSplitTotal} />
+            </div>
+          )}
         </>
       )}
 
@@ -611,7 +643,7 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
   const fmtVal = (key: string, val: any) => {
     if (key === "work_days") return val != null ? `${val}` : "0";
     if (key === "paid_leave_days") return val != null ? `${val}` : "0";
-    if (key.includes("minutes")) return val != null ? `${val}` : "0";
+    if (key.includes("minutes")) return ((val || 0) / 60).toFixed(2);
     if (key === "employee_code" || key === "full_name") return val || "";
     return val != null ? `¥${Number(val).toLocaleString()}` : "¥0";
   };
@@ -666,13 +698,32 @@ function SpreadTable({ cols, data, allRows, editingCell, setEditingCell, onChang
                   const baseBg = c.editable ? "#fafbfc" : "#fff";
 
                   if (isEditing && c.editable) {
+                    const isTimeCol = c.key.includes("minutes");
+                    const inputStyle = { width: "100%", padding: "6px 4px", border: `2px solid ${T.primary}`, borderRadius: 0 as const, textAlign: "right" as const, fontSize: 12, outline: "none", boxSizing: "border-box" as const, backgroundColor: "#fffde7" };
+                    if (isTimeCol) {
+                      const hoursVal = (val || 0) / 60;
+                      return (
+                        <td key={c.key} style={{ padding: 0, borderRight: "1px solid #eee", ...stickyTdStyle(c.key, "#fffde7") }}>
+                          <input autoFocus type="number" step="0.25"
+                            defaultValue={hoursVal || ""}
+                            onBlur={e => {
+                              const h = parseFloat(e.target.value) || 0;
+                              onChange(globalIdx, c.key, String(Math.floor(h * 4) * 15));
+                              setEditingCell(null);
+                            }}
+                            onKeyDown={e => { if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                            style={inputStyle}
+                          />
+                        </td>
+                      );
+                    }
                     return (
                       <td key={c.key} style={{ padding: 0, borderRight: "1px solid #eee", ...stickyTdStyle(c.key, "#fffde7") }}>
                         <input autoFocus type="number" value={val === 0 || val === "0" ? "" : val}
                           onChange={e => onChange(globalIdx, c.key, e.target.value)}
                           onBlur={e => { if (e.target.value === "") onChange(globalIdx, c.key, "0"); setEditingCell(null); }}
-                          onKeyDown={e => { if (e.key === "Enter" || e.key === "Tab") setEditingCell(null); }}
-                          style={{ width: "100%", padding: "6px 4px", border: `2px solid ${T.primary}`, borderRadius: 0, textAlign: "right", fontSize: 12, outline: "none", boxSizing: "border-box", backgroundColor: "#fffde7" }}
+                          onKeyDown={e => { if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                          style={inputStyle}
                         />
                       </td>
                     );

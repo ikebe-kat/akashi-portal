@@ -215,13 +215,20 @@ function calculateParttime(
 
     if (record?.punch_in && record?.punch_out) {
       const breakMins = record.break_minutes_self_reported ?? 0;
-      const mins = calcWorkMinutes(record.punch_in, record.punch_out, breakMins);
+      const rawMins = calcWorkMinutes(record.punch_in, record.punch_out, breakMins);
+      const mins = Math.floor(rawMins / 15) * 15;
       daily.workMinutes = mins; totalWorkMinutes += mins; workDays++;
-      let rate = rateWeekday;
-      if (dayOfWeek === 0) { rate = rateSunday; sundayMinutes += mins; }
-      else if (dayOfWeek === 6) { rate = rateSaturday; saturdayMinutes += mins; }
-      else { weekdayMinutes += mins; }
-      daily.appliedHourlyRate = rate;
+      const hasSplitRates = rateSaturday !== rateWeekday || rateSunday !== rateWeekday;
+      if (hasSplitRates) {
+        let rate = rateWeekday;
+        if (dayOfWeek === 0) { rate = rateSunday; sundayMinutes += mins; }
+        else if (dayOfWeek === 6) { rate = rateSaturday; saturdayMinutes += mins; }
+        else { weekdayMinutes += mins; }
+        daily.appliedHourlyRate = rate;
+      } else {
+        weekdayMinutes += mins;
+        daily.appliedHourlyRate = rateWeekday;
+      }
       if (mins > OVERTIME_THRESHOLD_MINUTES) {
         daily.overtimeMinutes = mins - OVERTIME_THRESHOLD_MINUTES;
         totalOvertimeMinutes += daily.overtimeMinutes;
