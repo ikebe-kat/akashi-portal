@@ -282,75 +282,147 @@ export default function PayrollSub({ employee }: { employee: any }) {
   const exportExcel = async () => {
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet("給与");
-    ws.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1 };
+    const [ty, tm] = yearMonth.split("-").map(Number);
+    const empIds = rows.map((r: any) => r.employee_id);
+    if (empIds.length === 0) return;
 
-    const thinBorder: any = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    const [empRes, cfgRes, commuteRes, prevRes] = await Promise.all([
+      supabase.from("employees").select("id, birth_date, hire_date, job_type, position, store_id, stores(store_name)").in("id", empIds),
+      supabase.from("employee_payroll_config").select("employee_id, qualifications, commute_distance_km, rank, dependents_count").in("employee_id", empIds),
+      supabase.from("payroll_commute_master").select("distance_from, distance_to, distance_label").eq("company_id", AKASHI_COMPANY_ID).order("distance_from"),
+      supabase.from("payroll_monthly").select("employee_id, total_payment").eq("company_id", AKASHI_COMPANY_ID)
+        .eq("target_year", tm === 1 ? ty - 1 : ty).eq("target_month", tm === 1 ? 12 : tm - 1),
+    ]);
+
+    const empMap = new Map((empRes.data || []).map((e: any) => [e.id, e]));
+    const cfgMap = new Map((cfgRes.data || []).map((c: any) => [c.employee_id, c]));
+    const prevMap = new Map((prevRes.data || []).map((p: any) => [p.employee_id, p.total_payment]));
+    const commMaster = commuteRes.data || [];
+
+    const distLabel = (km: number | null) => {
+      if (km == null) return "";
+      const hit = commMaster.find((t: any) => km >= t.distance_from && (t.distance_to === null || km < t.distance_to));
+      return hit?.distance_label || "";
+    };
+    const baseDate = new Date(ty, tm - 1, 1);
+    const fmtDate = (d: string | null) => {
+      if (!d) return "";
+      const [yy, mo, dd] = d.split("-");
+      return `${yy}/${parseInt(mo)}/${parseInt(dd)}`;
+    };
+    const calcAge = (bd: string | null): number | string => {
+      if (!bd) return "";
+      const [by, bm, bday] = bd.split("-").map(Number);
+      let age = baseDate.getFullYear() - by;
+      if (baseDate.getMonth() + 1 < bm || (baseDate.getMonth() + 1 === bm && baseDate.getDate() < bday)) age--;
+      return age;
+    };
+    const calcTenure = (hd: string | null) => {
+      if (!hd) return "";
+      const [hy, hm, hday] = hd.split("-").map(Number);
+      let yrs = baseDate.getFullYear() - hy;
+      let mos = (baseDate.getMonth() + 1) - hm;
+      if (baseDate.getDate() < hday) mos--;
+      if (mos < 0) { yrs--; mos += 12; }
+      return `${yrs}年${mos}ヶ月`;
+    };
+
+    const enriched = rows.map((r: any) => {
+      const emp = empMap.get(r.employee_id) || {} as any;
+      const cfg = cfgMap.get(r.employee_id) || {} as any;
+      const qs: string[] = cfg.qualifications || [];
+      const km: number | null = cfg.commute_distance_km ?? null;
+      const bs = r.base_salary || 0, pa = r.position_allowance || 0, qa = r.qualification_allowance || 0;
+      const fo = r.fixed_overtime || 0, op = r.overtime_pay || 0;
+      const da = r.dependent_allowance || 0, ca = r.commute_allowance || 0, aa = r.adjustment_allowance || 0;
+      const shoteinai = bs + pa + qa;
+      const shoteigai = fo + op + da + ca + aa;
+      return {
+        storeName: emp.stores?.store_name || r.store_name || "",
+        fullName: r.full_name, birthDate: emp.birth_date || null, age: calcAge(emp.birth_date),
+        hireDate: emp.hire_date || null, tenure: calcTenure(emp.hire_date),
+        dependents: cfg.dependents_count ?? 0, jobType: emp.job_type || "", position: emp.position || "",
+        qual1: qs[0] || "", qual2: qs[1] || "", qual3: qs[2] || "",
+        commuteDist: km, commuteRange: distLabel(km), rank: cfg.rank || "",
+        baseSalary: bs, posAllowance: pa, qualAllowance: qa, shoteinai,
+        fixedOvertime: fo, overtimePay: op, depAllowance: da, commuteAllowance: ca, adjustAllowance: aa,
+        shoteigai, monthly: shoteinai + shoteigai, prevPayment: prevMap.get(r.employee_id) || 0,
+        code: r.employee_code,
+      };
+    });
+    enriched.sort((a, b) => a.code.localeCompare(b.code));
+
+    const groups = new Map<string, typeof enriched>();
+    for (const row of enriched) {
+      const key = row.storeName || "全店";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
+    }
+
+    const thin: any = { top: {style:"thin"}, left: {style:"thin"}, bottom: {style:"thin"}, right: {style:"thin"} };
     const hdrFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDDDDD" } };
     const totalFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE9ECEF" } };
-    const boldFont: any = { bold: true, size: 10, name: "Yu Gothic" };
-    const normFont: any = { size: 10, name: "Yu Gothic" };
-    const titleFont: any = { bold: true, size: 12, name: "Yu Gothic" };
+    const bFont: any = { bold: true, size: 10, name: "Yu Gothic" };
+    const nFont: any = { size: 10, name: "Yu Gothic" };
+    const tFont: any = { bold: true, size: 12, name: "Yu Gothic" };
+    const HEADERS = ["No.","所属","氏名","生年月日","年齢","入社日","勤続","扶養(子)","職種","役職",
+      "資格①","資格②","資格③","通勤距離","通勤範囲","ランク","基本給","役職給","資格手当",
+      "所定内賃金","固定残業手当","残業手当","扶養手当","通勤手当①","調整手当","所定外賃金","月額","前月給与"];
+    const WIDTHS = [5,10,12,12,5,12,10,7,8,8,16,16,16,8,16,10,10,10,10,12,12,10,10,10,10,12,12,12];
 
-    const allFt = rows.filter((r: any) => r.employment_type !== "パート");
-    const allPt = rows.filter((r: any) => r.employment_type === "パート");
-    const allFtTotal = allFt.reduce((s: number, r: any) => s + (r.total_payment || 0), 0);
-    const allPtTotal = allPt.reduce((s: number, r: any) => s + (r.total_payment || 0), 0);
+    for (const [sName, sRows] of groups) {
+      const ws = wb.addWorksheet(sName);
+      ws.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+      WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
-    const writeTable = (startRow: number, title: string, cols: typeof FT_COLS, data: any[], total: number) => {
-      let r = startRow;
-      ws.getCell(r, 1).value = title;
-      ws.getCell(r, 1).font = titleFont;
+      let r = 1;
+      ws.getCell(r, 1).value = `${sName}　${tm}月支給分`;
+      ws.getCell(r, 1).font = tFont;
       r++;
-      cols.forEach((c, i) => {
-        const cell = ws.getCell(r, i + 1);
-        cell.value = c.label;
-        cell.font = boldFont;
-        cell.alignment = { horizontal: "center" };
-        cell.border = thinBorder;
-        cell.fill = hdrFill;
+      ws.getCell(r, 1).value = `基準日：${ty}年${tm}月1日`;
+      ws.getCell(r, 1).font = nFont;
+      r += 2;
+
+      HEADERS.forEach((h, i) => {
+        const c = ws.getCell(r, i + 1);
+        c.value = h; c.font = bFont; c.alignment = { horizontal: "center", wrapText: true };
+        c.border = thin; c.fill = hdrFill;
       });
       r++;
-      for (const row of data) {
-        cols.forEach((c, i) => {
-          const cell = ws.getCell(r, i + 1);
-          const val = row[c.key];
-          if (c.key === "employee_code" || c.key === "full_name") {
-            cell.value = val || "";
-            cell.alignment = { horizontal: "left" };
-          } else {
-            cell.value = val != null ? Number(val) : 0;
-            cell.alignment = { horizontal: "right" };
-            if (!c.key.includes("minutes") && c.key !== "work_days" && c.key !== "paid_leave_days")
-              cell.numFmt = "#,##0";
-          }
-          cell.font = normFont;
-          cell.border = thinBorder;
+
+      for (let idx = 0; idx < sRows.length; idx++) {
+        const d = sRows[idx];
+        const vals: any[] = [
+          idx + 1, d.storeName, d.fullName, fmtDate(d.birthDate), d.age,
+          fmtDate(d.hireDate), d.tenure, d.dependents, d.jobType, d.position,
+          d.qual1, d.qual2, d.qual3, d.commuteDist ?? "", d.commuteRange, d.rank,
+          d.baseSalary, d.posAllowance, d.qualAllowance, d.shoteinai,
+          d.fixedOvertime, d.overtimePay, d.depAllowance, d.commuteAllowance,
+          d.adjustAllowance, d.shoteigai, d.monthly, d.prevPayment,
+        ];
+        vals.forEach((v, i) => {
+          const c = ws.getCell(r, i + 1);
+          c.value = v; c.font = nFont; c.border = thin;
+          if (i >= 16) { c.numFmt = "#,##0"; c.alignment = { horizontal: "right" }; }
         });
         r++;
       }
-      cols.forEach((c, i) => {
-        const cell = ws.getCell(r, i + 1);
-        if (i === 0) { cell.value = "合計"; cell.alignment = { horizontal: "left" }; }
-        else if (c.key === "total_payment") { cell.value = total; cell.alignment = { horizontal: "right" }; cell.numFmt = "#,##0"; }
-        else { cell.value = null; }
-        cell.font = boldFont;
-        cell.border = thinBorder;
-        cell.fill = totalFill;
+
+      const tots = sRows.reduce((a, d) => ({
+        bs: a.bs + d.baseSalary, pa: a.pa + d.posAllowance, qa: a.qa + d.qualAllowance,
+        si: a.si + d.shoteinai, fo: a.fo + d.fixedOvertime, op: a.op + d.overtimePay,
+        da: a.da + d.depAllowance, ca: a.ca + d.commuteAllowance, aa: a.aa + d.adjustAllowance,
+        sg: a.sg + d.shoteigai, mo: a.mo + d.monthly, pp: a.pp + d.prevPayment,
+      }), { bs:0, pa:0, qa:0, si:0, fo:0, op:0, da:0, ca:0, aa:0, sg:0, mo:0, pp:0 });
+      const totVals: any[] = [
+        "合計",null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,
+        tots.bs, tots.pa, tots.qa, tots.si, tots.fo, tots.op, tots.da, tots.ca, tots.aa, tots.sg, tots.mo, tots.pp,
+      ];
+      totVals.forEach((v, i) => {
+        const c = ws.getCell(r, i + 1);
+        c.value = v; c.font = bFont; c.border = thin; c.fill = totalFill;
+        if (i >= 16) { c.numFmt = "#,##0"; c.alignment = { horizontal: "right" }; }
       });
-      return r + 1;
-    };
-
-    let r = 1;
-    r = writeTable(r, `正社員（月給制）　期間: ${periods.ft}`, FT_COLS, allFt, allFtTotal);
-    r += 2;
-    writeTable(r, `パート（時給制）　期間: ${periods.pt}`, PT_COLS, allPt, allPtTotal);
-
-    const maxCols = Math.max(FT_COLS.length, PT_COLS.length);
-    for (let i = 0; i < maxCols; i++) {
-      const ftW = i < FT_COLS.length ? FT_COLS[i].width : 80;
-      const ptW = i < PT_COLS.length ? PT_COLS[i].width : 80;
-      ws.getColumn(i + 1).width = Math.max(ftW, ptW) / 6;
     }
 
     const buf = await wb.xlsx.writeBuffer();
@@ -358,9 +430,8 @@ export default function PayrollSub({ employee }: { employee: any }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    const [fy, fm] = yearMonth.split("-").map(Number);
-    const fpm = fm === 1 ? 12 : fm - 1;
-    const fpy = fm === 1 ? fy - 1 : fy;
+    const fpm = tm === 1 ? 12 : tm - 1;
+    const fpy = tm === 1 ? ty - 1 : ty;
     a.download = `明石西_給与_${fpy}-${String(fpm).padStart(2, "0")}.xlsx`;
     document.body.appendChild(a);
     a.click();
