@@ -48,9 +48,23 @@ async function makeZip(files: { name: string; data: Uint8Array | Blob }[]): Prom
 interface EmpD { id: string; employee_code: string; full_name: string; employment_type: string; store_code: string; store_name: string; holiday_calendar: string | null; }
 interface AttR {
   attendance_date: string; punch_in_raw: string | null; punch_out_raw: string | null;
+  punch_in: string | null; punch_out: string | null; break_minutes_self_reported: number | null;
   reason: string | null; late_minutes: number | null; early_leave_minutes: number | null;
   scheduled_hours: number | null; contract_hours: number | null;
   overtime_hours: number | null; over_under: number | null; is_holiday: boolean | null;
+}
+
+// 給与計算(calculatePayroll)のパート実働ロジックと完全一致させるためのユーティリティ
+function parseTimeToMin(timeStr: string | null): number | null {
+  if (!timeStr) return null;
+  if (timeStr.includes("T")) { const d = new Date(timeStr); return d.getHours() * 60 + d.getMinutes(); }
+  const parts = timeStr.split(":");
+  return parts.length < 2 ? null : parseInt(parts[0]) * 60 + parseInt(parts[1]);
+}
+function calcWorkMin(clockIn: string | null, clockOut: string | null, breakMinutes: number): number {
+  const i = parseTimeToMin(clockIn), o = parseTimeToMin(clockOut);
+  if (i === null || o === null) return 0;
+  return Math.max(0, o - i - breakMinutes);
 }
 
 export default function SharoushiSub({ employee }: { employee: any }) {
@@ -85,7 +99,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const broadEnd = regularRange.to > partRange.to ? regularRange.to : partRange.to;
 
       const { data: attRaw, error: attErr } = await supabase.from("attendance_daily")
-        .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, reason, late_minutes, early_leave_minutes, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday")
+        .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday")
         .gte("attendance_date", broadStart).lte("attendance_date", broadEnd);
       if (attErr) throw attErr;
       const attByEmp = new Map<string, Map<string, AttR>>();
@@ -190,12 +204,21 @@ export default function SharoushiSub({ employee }: { employee: any }) {
 
       for (const ip of persons) {
         const ma = attByEmp.get(ip.emp.id) || new Map<string, AttR>();
-        const sumRange = getDateRange(selYear, selMonth, ip.emp.employment_type === "パート");
+        const isPart = ip.emp.employment_type === "パート";
+        const sumRange = getDateRange(selYear, selMonth, isPart);
         let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
         for (const [dateKey, a] of ma) {
           if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
           if (a.punch_in_raw || a.punch_out_raw || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
-          if (a.scheduled_hours) sm += Math.round(a.scheduled_hours * 60);
+          // 勤務時間: パートは給与計算と同一の「15分切り捨て実働(退勤-出勤-自己申告休憩)」、正社員は従来どおり所定(scheduled_hours)
+          if (isPart) {
+            if (a.punch_in && a.punch_out) {
+              const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
+              sm += Math.floor(raw / 15) * 15;
+            }
+          } else if (a.scheduled_hours) {
+            sm += Math.round(a.scheduled_hours * 60);
+          }
           if (a.reason) {
             const r = a.reason;
             if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
