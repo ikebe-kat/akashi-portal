@@ -105,9 +105,11 @@ function calculateFulltime(
           totalOvertimeMinutes += daily.overtimeMinutes;
         }
       }
-    } else if (hasLeave) {
-      if (record?.reason?.includes('有給（全日）')) paidLeaveDays += 1;
-      else if (record?.reason?.includes('午前有給') || record?.reason?.includes('午後有給')) paidLeaveDays += 0.5;
+    } else if (record?.reason?.includes('有給（全日）')) {
+      // 有給日数は attendance_daily.reason 基準で集計（leave_requests の有無に依存しない）
+      paidLeaveDays += 1;
+    } else if (record?.reason?.includes('午前有給') || record?.reason?.includes('午後有給')) {
+      paidLeaveDays += 0.5;
     } else if (record?.punch_in && record?.punch_out) {
       const mins = calcWorkMinutes(record.punch_in, record.punch_out, 60);
       daily.workMinutes = mins; totalWorkMinutes += mins; workDays++;
