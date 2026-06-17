@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import { T, DOW, AKASHI_COMPANY_ID } from "@/lib/constants";
+import { T, DOW } from "@/lib/constants";
 import { ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { notifyPush } from "@/lib/notifyPush";
@@ -136,43 +136,8 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
       setProcessing(null); showErr("出勤簿への登録が保存できなかったため承認を取り消しました（RLS の可能性）。管理者に連絡してください。"); fetchRequests(); return;
     }
 
-    // ③ 有給残を消費（KAT=FIFO古い方から、明石西=LIFO新しい方から）
-    let yukyuDays = 0;
-    if (req.reason?.includes("有給（全日）")) yukyuDays += 1;
-    if (req.reason?.includes("午前有給")) yukyuDays += 0.5;
-    if (req.reason?.includes("午後有給")) yukyuDays += 0.5;
-    if (yukyuDays > 0) {
-      const isAkashi = employee?.company_id === AKASHI_COMPANY_ID;
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: grants, error: grantsErr } = await supabase.from("paid_leave_grants")
-        .select("id, remaining_days").eq("employee_id", req.employee_id)
-        .eq("is_expired", false).gt("remaining_days", 0).gte("expiry_date", today).order("expiry_date", { ascending: !isAkashi });
-      if (grantsErr) {
-        console.error("paid_leave_grants select err:", grantsErr);
-        // 承認・出勤簿は通っているのでロールバックはせず警告
-        showErr("承認は通りましたが有給残の取得に失敗しました。残数を管理者画面で確認してください: " + grantsErr.message);
-      } else {
-        let remaining = yukyuDays;
-        let consumeFailed = false;
-        for (const g of (grants || [])) {
-          if (remaining <= 0) break;
-          const consume = Math.min(remaining, Number(g.remaining_days));
-          const { data: cUpd, error: consumeErr } = await supabase.from("paid_leave_grants").update({
-            remaining_days: Number(g.remaining_days) - consume,
-          }).eq("id", g.id).select();
-          if (consumeErr) { console.error("paid_leave_grants update err:", consumeErr); consumeFailed = true; break; }
-          if (!cUpd || cUpd.length === 0) { console.error("paid_leave_grants update 0 rows (RLS?):", { id: g.id }); consumeFailed = true; break; }
-          remaining -= consume;
-        }
-        if (consumeFailed) {
-          showErr("承認は通りましたが有給残の更新に失敗しました。管理者画面で残数を確認・修正してください。");
-        } else if (remaining > 0) {
-          // 残数不足で消費しきれなかった（事前チェック漏れ）
-          console.error("paid_leave_grants insufficient remaining:", { req_id: req.id, remaining });
-          showErr(`承認は通りましたが消費できなかった日数があります（残: ${remaining}日）。管理者で確認してください。`);
-        }
-      }
-    }
+    // ③ 有給残の消費は DBトリガー(trg_sync_paid_leave)が attendance_daily への
+    //    reason 書き込みを契機に1回だけ行う。フロントからは直接減算しない（二重減算防止）。
 
     notifyPush("leave_request_approved", {
       company_id: employee.company_id, employee_id: req.employee_id,

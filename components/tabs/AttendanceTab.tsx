@@ -464,29 +464,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       if (error) { console.error("事由取消 err:", error); showAlert("取消に失敗しました: " + error.message); return; }
       if (!upd || upd.length === 0) { console.error("事由取消 0 rows (RLS or no record)"); showAlert("取消対象が見つかりませんでした（既に消えている可能性、または権限設定の可能性）"); return; }
 
-      if (modalDay.reason) {
-        let yukyuToRestore = 0;
-        if (modalDay.reason.includes("有給（全日）")) yukyuToRestore += 1;
-        if (modalDay.reason.includes("午前有給")) yukyuToRestore += 0.5;
-        if (modalDay.reason.includes("午後有給")) yukyuToRestore += 0.5;
-        if (yukyuToRestore > 0) {
-          const isAkashi = employee?.company_id === AKASHI_COMPANY_ID;
-          const today = new Date().toISOString().slice(0, 10);
-          const { data: grants } = await supabase.from("paid_leave_grants")
-            .select("id, grant_days, remaining_days").eq("employee_id", employee.id)
-            .eq("is_expired", false).gte("expiry_date", today)
-            .order("expiry_date", { ascending: !isAkashi });
-          let toRestore = yukyuToRestore;
-          for (const g of (grants || [])) {
-            if (toRestore <= 0) break;
-            const canRestore = Math.min(toRestore, Number(g.grant_days) - Number(g.remaining_days));
-            if (canRestore <= 0) continue;
-            await supabase.from("paid_leave_grants")
-              .update({ remaining_days: Number(g.remaining_days) + canRestore }).eq("id", g.id);
-            toRestore -= canRestore;
-          }
-        }
-      }
+      // 有給残の復元は DBトリガー(trg_sync_paid_leave)が reason 消去を契機に1回だけ行う。
+      //   フロントからは直接復元しない（二重復元防止）。
 
       setModalDay(null); loadData();
       if (modalDay.reason && (modalDay.reason.includes("有給") || modalDay.reason.includes("選択休") || modalDay.reason.includes("代休") || modalDay.reason.includes("出張"))) {
