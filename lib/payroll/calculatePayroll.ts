@@ -119,14 +119,15 @@ function calculateFulltime(
       daily.hasWarning = true;
       daily.warningMessage = `${dateStr}: 退勤打刻漏れ`;
       warnings.push(daily.warningMessage);
-    } else {
+    } else if (record?.reason?.includes('欠勤')) {
+      // 欠勤は reason に「欠勤」が入っている日のみ。空白日・事由なしの日は欠勤にしない
       daily.isAbsent = true; absenceDays++;
     }
     dailyDetails.push(daily);
   }
 
-  const scheduledWorkDays = dates.filter(d => !holidays.has(d)).length;
-  const isPartialMonth = workDays < scheduledWorkDays && absenceDays === 0 && workDays > 0;
+  // 正社員は月給制のため日割りしない（出勤日数が所定未満でも常に満額支給）
+  const isPartialMonth = false;
 
   let baseSalary = emp.base_salary, positionAllowance = emp.position_allowance;
   let qualificationAllowance = emp.qualification_allowance;
