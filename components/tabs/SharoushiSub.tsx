@@ -217,38 +217,64 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const sumRows: SumR[] = [];
       let gW = 0, gSc = 0, gY = 0, gSh = 0, gKk = 0, gOth = 0, gLc = 0, gLm = 0, gEc = 0, gEm = 0, gO = 0, gU = 0;
 
-      // 集計ループ（CSV/Excel生成は後段で雇用区分別に2セクション化するため、ここではsumRowsへの集計と総合計合算のみ）
+      // 集計ループ（パートは曜日別3行分割: 平日/土/日）
+      const DOW_LABELS = ["（平）", "（土）", "（日）"];
       for (const ip of persons) {
         const ma = attByEmp.get(ip.emp.id) || new Map<string, AttR>();
         const isPart = ip.emp.employment_type === "パート";
         const sumRange = getDateRange(selYear, selMonth, isPart);
-        let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
-        for (const [dateKey, a] of ma) {
-          if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
-          if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
-          // 勤務時間: パートは給与計算と同一の「15分切り捨て実働(退勤-出勤-自己申告休憩)」、正社員は従来どおり所定(scheduled_hours)
-          if (isPart) {
+        const empCode = ip.emp.employee_code.padStart(6, "0");
+
+        if (isPart) {
+          const bk = DOW_LABELS.map(() => ({ w: 0, sm: 0, y: 0, sh: 0, k: 0, oth: 0, lc: 0, lm: 0, ec: 0, em: 0, om: 0, um: 0 }));
+          for (const [dateKey, a] of ma) {
+            if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
+            const dow = new Date(dateKey + "T00:00:00").getDay();
+            const b = bk[dow === 0 ? 2 : dow === 6 ? 1 : 0];
+            if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) b.w++;
             if (a.punch_in && a.punch_out) {
               const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
-              sm += Math.floor(raw / 15) * 15;
+              b.sm += Math.floor(raw / 15) * 15;
             }
-          } else if (a.actual_hours) {
-            sm += Math.round(a.actual_hours * 60);
+            if (a.reason) {
+              const r = a.reason;
+              if (r.includes("有給")) b.y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+              if (r.includes("出張") || r === "直行" || r === "直帰" || r === "直直") b.sh++;
+              if (r === "欠勤") b.k++;
+              if (r.includes("選択休")) b.oth += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+            }
+            if (a.late_minutes && a.late_minutes > 0) { b.lc++; b.lm += a.late_minutes; }
+            if (a.early_leave_minutes && a.early_leave_minutes > 0) { b.ec++; b.em += a.early_leave_minutes; }
+            if (a.overtime_hours) b.om += Math.round(a.overtime_hours * 60);
+            if (a.over_under) b.um += a.over_under;
           }
-          if (a.reason) {
-            const r = a.reason;
-            if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
-            if (r.includes("出張") || r === "直行" || r === "直帰" || r === "直直") sh++;
-            if (r === "欠勤") k++;
-            if (r.includes("選択休")) oth += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+          for (let bi = 0; bi < 3; bi++) {
+            const b = bk[bi];
+            if (!b.w && !b.sm && !b.y && !b.sh && !b.k && !b.oth && !b.om) continue;
+            sumRows.push({ code: empCode, name: ip.emp.full_name + DOW_LABELS[bi], employmentType: "パート", w: b.w, sm: b.sm, y: b.y, sh: b.sh, k: b.k, oth: b.oth, lc: b.lc, lm: b.lm, ec: b.ec, em: b.em, om: b.om, um: b.um });
+            gW += b.w; gSc += b.sm; gY += b.y; gSh += b.sh; gKk += b.k; gOth += b.oth; gLc += b.lc; gLm += b.lm; gEc += b.ec; gEm += b.em; gO += b.om; gU += b.um;
           }
-          if (a.late_minutes && a.late_minutes > 0) { lc++; lm += a.late_minutes; }
-          if (a.early_leave_minutes && a.early_leave_minutes > 0) { ec++; em2 += a.early_leave_minutes; }
-          if (a.overtime_hours) om += Math.round(a.overtime_hours * 60);
-          if (a.over_under) um += a.over_under;
+        } else {
+          let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
+          for (const [dateKey, a] of ma) {
+            if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
+            if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
+            if (a.actual_hours) { sm += Math.round(a.actual_hours * 60); }
+            if (a.reason) {
+              const r = a.reason;
+              if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+              if (r.includes("出張") || r === "直行" || r === "直帰" || r === "直直") sh++;
+              if (r === "欠勤") k++;
+              if (r.includes("選択休")) oth += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+            }
+            if (a.late_minutes && a.late_minutes > 0) { lc++; lm += a.late_minutes; }
+            if (a.early_leave_minutes && a.early_leave_minutes > 0) { ec++; em2 += a.early_leave_minutes; }
+            if (a.overtime_hours) om += Math.round(a.overtime_hours * 60);
+            if (a.over_under) um += a.over_under;
+          }
+          sumRows.push({ code: empCode, name: ip.emp.full_name, employmentType: ip.emp.employment_type, w, sm, y, sh, k, oth, lc, lm, ec, em: em2, om, um });
+          gW += w; gSc += sm; gY += y; gSh += sh; gKk += k; gOth += oth; gLc += lc; gLm += lm; gEc += ec; gEm += em2; gO += om; gU += um;
         }
-        sumRows.push({ code: ip.emp.employee_code.padStart(6, "0"), name: ip.emp.full_name, employmentType: ip.emp.employment_type, w, sm, y, sh, k, oth, lc, lm, ec, em: em2, om, um });
-        gW += w; gSc += sm; gY += y; gSh += sh; gKk += k; gOth += oth; gLc += lc; gLm += lm; gEc += ec; gEm += em2; gO += om; gU += um;
       }
 
       // 期間ラベル（CSV/Excel共用）
