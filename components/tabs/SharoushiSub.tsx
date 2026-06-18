@@ -31,6 +31,11 @@ function tzHHMM(raw: string | null): string {
   const j = new Date(d.getTime() + 9 * 3600000);
   return `${j.getUTCHours()}:${String(j.getUTCMinutes()).padStart(2, "0")}`;
 }
+function fmTimeStr(t: string | null): string {
+  if (!t) return "";
+  const p = t.split(":");
+  return `${parseInt(p[0])}:${p[1]}`;
+}
 function pad(s: string, w: number): string { return s.length >= w ? s : " ".repeat(w - s.length) + s; }
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -50,7 +55,7 @@ interface AttR {
   attendance_date: string; punch_in_raw: string | null; punch_out_raw: string | null;
   punch_in: string | null; punch_out: string | null; break_minutes_self_reported: number | null;
   reason: string | null; late_minutes: number | null; early_leave_minutes: number | null;
-  scheduled_hours: number | null; contract_hours: number | null;
+  actual_hours: number | null; scheduled_hours: number | null; contract_hours: number | null;
   overtime_hours: number | null; over_under: number | null; is_holiday: boolean | null;
 }
 
@@ -108,7 +113,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const broadEnd = regularRange.to > partRange.to ? regularRange.to : partRange.to;
 
       const { data: attRaw, error: attErr } = await supabase.from("attendance_daily")
-        .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday")
+        .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, actual_hours, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday")
         .eq("company_id", employee.company_id)
         .gte("attendance_date", broadStart).lte("attendance_date", broadEnd)
         .range(0, 99999);
@@ -162,15 +167,16 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           let rs = "", pi = "", po = "", lt = "", et = "", ot = "", sc = "", ct = "", ou = "";
           if (a) {
             rs = mapReason(a.reason);
-            pi = tzHHMM(a.punch_in_raw); po = tzHHMM(a.punch_out_raw);
+            pi = a.punch_in_raw ? tzHHMM(a.punch_in_raw) : fmTimeStr(a.punch_in);
+            po = a.punch_out_raw ? tzHHMM(a.punch_out_raw) : fmTimeStr(a.punch_out);
             if (a.late_minutes && a.late_minutes > 0) { lt = fmMin(a.late_minutes); sL += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { et = fmMin(a.early_leave_minutes); sE += a.early_leave_minutes; }
             if (a.overtime_hours && a.overtime_hours > 0) { ot = fmDec(a.overtime_hours); sO += a.overtime_hours; }
             if (a.scheduled_hours && a.scheduled_hours > 0) { sc = fmDec(a.scheduled_hours); sS += a.scheduled_hours; }
             if (a.contract_hours && a.contract_hours > 0) { ct = fmDec(a.contract_hours); sC += a.contract_hours; }
             if (a.over_under && a.over_under !== 0) { ou = fmMin(a.over_under); sU += a.over_under; }
-            if (a.punch_in_raw) cI++;
-            if (a.punch_out_raw) cO2++;
+            if (a.punch_in_raw || a.punch_in) cI++;
+            if (a.punch_out_raw || a.punch_out) cO2++;
             if (a.overtime_hours && a.overtime_hours > 0) cOt++;
             if (a.scheduled_hours && a.scheduled_hours > 0) cSc++;
             if (a.scheduled_hours && a.scheduled_hours >= 8.0) cS7++;
@@ -185,7 +191,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
               if (r.includes("振替")) cF++;
               if (r === "病欠") cB++;
             }
-            if (a.punch_in_raw || a.punch_out_raw || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) cW++;
+            if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) cW++;
           }
           if (isHol && !rs) rs = "休日";
           const dateCol = `${dm}/${dd}`;
@@ -219,15 +225,15 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
         for (const [dateKey, a] of ma) {
           if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
-          if (a.punch_in_raw || a.punch_out_raw || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
+          if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
           // 勤務時間: パートは給与計算と同一の「15分切り捨て実働(退勤-出勤-自己申告休憩)」、正社員は従来どおり所定(scheduled_hours)
           if (isPart) {
             if (a.punch_in && a.punch_out) {
               const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
               sm += Math.floor(raw / 15) * 15;
             }
-          } else if (a.scheduled_hours) {
-            sm += Math.round(a.scheduled_hours * 60);
+          } else if (a.actual_hours) {
+            sm += Math.round(a.actual_hours * 60);
           }
           if (a.reason) {
             const r = a.reason;
