@@ -70,6 +70,15 @@ const STORE_FILTER_OPTIONS = [
 
 // 有給残の増減は DBトリガー(trg_sync_paid_leave)が attendance_daily の reason 変更を
 // 契機に1回だけ行う。フロントからは直接 paid_leave_grants を書かない（二重減算防止）。
+// ※ reason から有給日数を数えるだけの純粋関数（残不足の事前チェック表示用。grantsは書かない）
+const calcYukyuDays = (reason: string | null): number => {
+  if (!reason) return 0;
+  let days = 0;
+  if (reason.includes("有給（全日）")) days += 1;
+  if (reason.includes("午前有給")) days += 0.5;
+  if (reason.includes("午後有給")) days += 0.5;
+  return days;
+};
 
 
 /* ── 4桁時間入力コンポーネント ── */
@@ -681,13 +690,7 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
     }
     const results = await Promise.all(promises);
 
-    if (previewReason !== null) {
-      for (const row of checkedRows) {
-        const empObj = emps.find(e => e.code === row.emp_code);
-        const empId = empObj?.id || (row.id.startsWith("empty-") ? row.id.replace("empty-", "") : null);
-        if (empId) await adjustLeaveGrants(empId, employee.company_id, row.reason, previewReason || null);
-      }
-    }
+    // 有給残の増減は DBトリガー(trg_sync_paid_leave)が reason 変更を契機に行う（フロントは触らない）
 
     setSaving(false);
     const failed = results.filter((r: any) => r.error || !r.data || r.data.length === 0);
@@ -878,12 +881,8 @@ const DailySub = ({ employee }: { employee: any }) => {
       else if (!upd || upd.length === 0) { console.error("daily update 0 rows (RLS?)"); setDialogMsg("保存できませんでした（権限設定の可能性）"); }
       else { saveOk = true; }
     }
-    if (saveOk && resolvedEmpId) {
-      const leaveErr = await adjustLeaveGrants(resolvedEmpId, employee.company_id, editRow.reason, updated.reason);
-      if (leaveErr) { setDialogMsg("保存しました（有給残の調整に問題: " + leaveErr + "）"); }
-      else { setDialogMsg("保存しました"); }
-      fetchDaily();
-    } else if (saveOk) {
+    if (saveOk) {
+      // 有給残は DBトリガー(trg_sync_paid_leave)が reason 変更を契機に増減（フロントは触らない）
       setDialogMsg("保存しました");
       fetchDaily();
     }
