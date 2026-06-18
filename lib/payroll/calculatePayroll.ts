@@ -389,7 +389,8 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
 async function fetchAttendance(start: string, end: string): Promise<AttendanceRecord[]> {
   const { data, error } = await supabase.from('attendance_daily')
     .select('id, employee_id, attendance_date, punch_in, punch_out, break_minutes, break_minutes_self_reported, reason, is_holiday, scheduled_hours')
-    .eq('company_id', AKASHI_COMPANY_ID).gte('attendance_date', start).lte('attendance_date', end);
+    .eq('company_id', AKASHI_COMPANY_ID).gte('attendance_date', start).lte('attendance_date', end)
+    .range(0, 99999);
   if (error) throw new Error(`勤怠データ取得エラー: ${error.message}`);
   return data || [];
 }

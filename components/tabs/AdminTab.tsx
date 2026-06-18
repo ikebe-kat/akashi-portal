@@ -1036,7 +1036,9 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     }
 
     const { data: attData } = await supabase.from("attendance_daily").select("employee_id, attendance_date, reason, actual_hours, scheduled_hours, overtime_hours, over_under, late_minutes, early_leave_minutes, is_holiday, punch_in, punch_out, break_minutes_self_reported")
-      .gte("attendance_date", broadStart).lte("attendance_date", broadEnd).in("employee_id", empIds);
+      .eq("company_id", employee.company_id)
+      .gte("attendance_date", broadStart).lte("attendance_date", broadEnd).in("employee_id", empIds)
+      .range(0, 99999);
 
     const { data: varData } = await supabase.from("variable_hours").select("scheduled_hours")
       .eq("company_id", employee.company_id).eq("year_month", yearMonth).limit(1).maybeSingle();

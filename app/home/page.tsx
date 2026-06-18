@@ -140,8 +140,10 @@ export default function HomePage() {
       if (targetIds.length > 0) {
         const { data: teamAtt } = await supabase.from("attendance_daily")
           .select("attendance_date, punch_in, punch_out, reason, late_minutes, early_leave_minutes, is_holiday")
+          .eq("company_id", employee.company_id)
           .in("employee_id", targetIds)
-          .gte("attendance_date", startDate).lte("attendance_date", today);
+          .gte("attendance_date", startDate).lte("attendance_date", today)
+          .range(0, 99999);
 
         let teamIssues = 0;
         (teamAtt || []).forEach((r: any) => {

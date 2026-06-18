@@ -100,7 +100,9 @@ export default function SharoushiSub({ employee }: { employee: any }) {
 
       const { data: attRaw, error: attErr } = await supabase.from("attendance_daily")
         .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday")
-        .gte("attendance_date", broadStart).lte("attendance_date", broadEnd);
+        .eq("company_id", employee.company_id)
+        .gte("attendance_date", broadStart).lte("attendance_date", broadEnd)
+        .range(0, 99999);
       if (attErr) throw attErr;
       const attByEmp = new Map<string, Map<string, AttR>>();
       for (const r of (attRaw || [])) { if (!attByEmp.has(r.employee_id)) attByEmp.set(r.employee_id, new Map()); attByEmp.get(r.employee_id)!.set(r.attendance_date, r as AttR); }
