@@ -235,6 +235,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.punch_in && a.punch_out) {
               const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
               b.sm += Math.floor(raw / 15) * 15;
+            } else if (!a.punch_in && a.actual_hours) {
+              b.sm += Math.round(a.actual_hours * 60);
             }
             if (a.reason) {
               const r = a.reason;
@@ -262,6 +264,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.punch_in && a.punch_out) {
               const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
               sm += Math.floor(raw / 15) * 15;
+            } else if (!a.punch_in && a.actual_hours) {
+              sm += Math.round(a.actual_hours * 60);
             }
             if (a.reason) {
               const r = a.reason;
