@@ -225,7 +225,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         const sumRange = getDateRange(selYear, selMonth, isPart);
         const empCode = ip.emp.employee_code.padStart(6, "0");
 
-        if (isPart) {
+        if (isPart && ip.emp.employee_code === "DA032") {
           const bk = DOW_LABELS.map(() => ({ w: 0, sm: 0, y: 0, sh: 0, k: 0, oth: 0, lc: 0, lm: 0, ec: 0, em: 0, om: 0, um: 0 }));
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
@@ -254,6 +254,29 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             sumRows.push({ code: empCode, name: ip.emp.full_name + DOW_LABELS[bi], employmentType: "パート", w: b.w, sm: b.sm, y: b.y, sh: b.sh, k: b.k, oth: b.oth, lc: b.lc, lm: b.lm, ec: b.ec, em: b.em, om: b.om, um: b.um });
             gW += b.w; gSc += b.sm; gY += b.y; gSh += b.sh; gKk += b.k; gOth += b.oth; gLc += b.lc; gLm += b.lm; gEc += b.ec; gEm += b.em; gO += b.om; gU += b.um;
           }
+        } else if (isPart) {
+          let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
+          for (const [dateKey, a] of ma) {
+            if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
+            if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
+            if (a.punch_in && a.punch_out) {
+              const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
+              sm += Math.floor(raw / 15) * 15;
+            }
+            if (a.reason) {
+              const r = a.reason;
+              if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+              if (r.includes("出張") || r === "直行" || r === "直帰" || r === "直直") sh++;
+              if (r === "欠勤") k++;
+              if (r.includes("選択休")) oth += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
+            }
+            if (a.late_minutes && a.late_minutes > 0) { lc++; lm += a.late_minutes; }
+            if (a.early_leave_minutes && a.early_leave_minutes > 0) { ec++; em2 += a.early_leave_minutes; }
+            if (a.overtime_hours) om += Math.round(a.overtime_hours * 60);
+            if (a.over_under) um += a.over_under;
+          }
+          sumRows.push({ code: empCode, name: ip.emp.full_name, employmentType: "パート", w, sm, y, sh, k, oth, lc, lm, ec, em: em2, om, um });
+          gW += w; gSc += sm; gY += y; gSh += sh; gKk += k; gOth += oth; gLc += lc; gLm += lm; gEc += ec; gEm += em2; gO += om; gU += um;
         } else {
           let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
           for (const [dateKey, a] of ma) {
