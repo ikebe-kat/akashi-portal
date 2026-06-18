@@ -41,13 +41,16 @@ export async function calculateAll(params: PayrollCalcParams): Promise<PayrollRe
   for (const emp of employees) {
     if (EXCLUDE_CODES.includes(emp.employee_code)) continue;
 
+    const isParttime = emp.employment_type === 'パート';
+    const period = isParttime ? parttimePeriod : fulltimePeriod;
+
+    // 対象期間末日より後の入社者は出力・計算の対象から外す（千野DA039のような未来入社の幽霊レコード防止）
+    if (emp.hire_date && emp.hire_date > period.end) continue;
+
     if (!emp.requires_punch) {
       results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
       continue;
     }
-
-    const isParttime = emp.employment_type === 'パート';
-    const period = isParttime ? parttimePeriod : fulltimePeriod;
     const empAttendance = attendance.filter(a => a.employee_id === emp.employee_id);
     const empLeaves = leaveRequests.filter(l => l.employee_id === emp.employee_id);
     const existingAdj = existingPayroll.find(p => p.employee_id === emp.employee_id);
@@ -351,7 +354,7 @@ interface LeaveRecord { employee_id: string; attendance_date: string; reason: st
 async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
   const { data, error } = await supabase
     .from('employees')
-    .select(`id, employee_code, full_name, employment_type, store_id, is_active, requires_punch, holiday_calendar,
+    .select(`id, employee_code, full_name, employment_type, store_id, is_active, requires_punch, holiday_calendar, hire_date,
       employee_payroll_config ( rank, base_salary_override, position_allowance_override, qualifications, dependents_count, commute_distance_km, fixed_overtime_amount, hourly_wage_weekday, hourly_wage_saturday, hourly_wage_sunday )`)
     .eq('company_id', AKASHI_COMPANY_ID).eq('is_active', true);
   if (error) throw new Error(`従業員データ取得エラー: ${error.message}`);
@@ -376,6 +379,7 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
       employee_id: e.id, employee_code: e.employee_code, employee_name: e.full_name,
       employment_type: e.employment_type, store_id: e.store_id, is_active: e.is_active,
       requires_punch: e.requires_punch ?? true, holiday_calendar: e.holiday_calendar || null,
+      hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null,
       base_salary: c.base_salary_override || 0, position_allowance: c.position_allowance_override || 0,
       qualification_allowance: calcQual(c.qualifications), commute_allowance: calcCommute(c.commute_distance_km),
       dependent_allowance: calcDep(c.dependents_count), fixed_overtime_amount: c.fixed_overtime_amount || 0,

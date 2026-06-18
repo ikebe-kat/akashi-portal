@@ -9,6 +9,7 @@ export interface PayrollConfig {
   store_id: string;
   is_active: boolean;
   requires_punch: boolean;
+  hire_date: string | null; // 'YYYY-MM-DD' — 対象期間末日より後ならスキップ判定に使う
 
   // 正社員用
   base_salary: number;

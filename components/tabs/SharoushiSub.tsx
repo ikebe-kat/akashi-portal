@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useCallback } from "react";
 import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
@@ -82,11 +82,20 @@ export default function SharoushiSub({ employee }: { employee: any }) {
     try {
       setProgress("従業員データ取得中...");
       const { data: empRaw, error: empErr } = await supabase.from("employees")
-        .select("id, employee_code, full_name, employment_type, store_id, holiday_calendar")
+        .select("id, employee_code, full_name, employment_type, store_id, holiday_calendar, hire_date")
         .eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
       if (empErr) throw empErr;
       if (!empRaw?.length) { setDialogMsg("従業員データがありません"); return; }
-      const empFiltered = empRaw.filter((e: any) => !HONBU_CODES.includes(e.employee_code));
+      // 対象期間末日より後の入社者は出力対象から外す（雇用区分別の末日で判定）
+      const regRange0 = getDateRange(selYear, selMonth, false);
+      const partRange0 = getDateRange(selYear, selMonth, true);
+      const empFiltered = empRaw.filter((e: any) => {
+        if (HONBU_CODES.includes(e.employee_code)) return false;
+        if (!e.hire_date) return true;
+        const hd = String(e.hire_date).slice(0, 10);
+        const end = e.employment_type === "パート" ? partRange0.to : regRange0.to;
+        return hd <= end;
+      });
 
       const { data: stRaw } = await supabase.from("stores").select("id, store_code, store_name").eq("company_id", employee.company_id);
       const stMap = new Map((stRaw || []).map((s: any) => [s.id, { code: s.store_code || "000", name: s.store_name || "指定なし" }]));
@@ -196,14 +205,13 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         });
       }
 
-      /* ── 合計表CSV（出張追加、他休=選択休+公休集計）── */
+      /* ── 合計表CSV（正社員/パートの2セクション、各ブロックに集計期間ラベル、総合計1行）── */
       setProgress("勤務合計表CSV生成中...");
-      let sCsv = `【勤務合計表】\r\n${regHdr}\r\n所属CD：指定なし\r\n社員CD：指定なし\r\n`;
-      sCsv += `社員CD,氏名        ,    勤務,勤務時間,    有休,    出張,    欠勤,    他休,    遅刻,    遅刻,    早退,    早退,私用外出,早出残業,普通残業,深夜残業,特別残業,法外普通,法外深夜,法内普通,法内深夜,超過不足\r\n`;
-      interface SumR { code: string; name: string; w: number; sm: number; y: number; sh: number; k: number; oth: number; lc: number; lm: number; ec: number; em: number; om: number; um: number; }
+      interface SumR { code: string; name: string; employmentType: string; w: number; sm: number; y: number; sh: number; k: number; oth: number; lc: number; lm: number; ec: number; em: number; om: number; um: number; }
       const sumRows: SumR[] = [];
       let gW = 0, gSc = 0, gY = 0, gSh = 0, gKk = 0, gOth = 0, gLc = 0, gLm = 0, gEc = 0, gEm = 0, gO = 0, gU = 0;
 
+      // 集計ループ（CSV/Excel生成は後段で雇用区分別に2セクション化するため、ここではsumRowsへの集計と総合計合算のみ）
       for (const ip of persons) {
         const ma = attByEmp.get(ip.emp.id) || new Map<string, AttR>();
         const isPart = ip.emp.employment_type === "パート";
@@ -233,19 +241,43 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           if (a.overtime_hours) om += Math.round(a.overtime_hours * 60);
           if (a.over_under) um += a.over_under;
         }
-        sumRows.push({ code: ip.emp.employee_code.padStart(6, "0"), name: ip.emp.full_name, w, sm, y, sh, k, oth, lc, lm, ec, em: em2, om, um });
-        const nm = (ip.emp.full_name + "\u3000\u3000\u3000\u3000\u3000\u3000").slice(0, 12);
-        sCsv += [ip.emp.employee_code.padStart(6, "0"), nm,
-          pad(w > 0 ? `${w}.0` : "", 8), pad(sm > 0 ? fmMin(sm) : "", 8),
-          pad(y > 0 ? `${y}` : "", 8), pad(sh > 0 ? `${sh}` : "", 8),
-          pad(k > 0 ? `${k}` : "", 8), pad(oth > 0 ? `${oth}` : "", 8),
-          pad(lc > 0 ? `${lc}.0` : "", 8), pad(lm > 0 ? fmMin(lm) : "", 8),
-          pad(ec > 0 ? `${ec}.0` : "", 8), pad(em2 > 0 ? fmMin(em2) : "", 8),
-          pad("", 8), pad("", 8), pad(om > 0 ? fmMin(om) : "", 8),
-          pad("", 8), pad("", 8), pad("", 8), pad("", 8), pad("", 8), pad("", 8),
-          pad(um !== 0 ? fmMin(um) : "", 8)].join(",") + "\r\n";
+        sumRows.push({ code: ip.emp.employee_code.padStart(6, "0"), name: ip.emp.full_name, employmentType: ip.emp.employment_type, w, sm, y, sh, k, oth, lc, lm, ec, em: em2, om, um });
         gW += w; gSc += sm; gY += y; gSh += sh; gKk += k; gOth += oth; gLc += lc; gLm += lm; gEc += ec; gEm += em2; gO += om; gU += um;
       }
+
+      // 期間ラベル（CSV/Excel共用）
+      const partRangeForLabel = getDateRange(selYear, selMonth, true);
+      const seiPeriodLabel = `${fmtDL(regularRange.from, DOW[regularRange.days[0].dow])}〜${fmtDL(regularRange.to, DOW[regularRange.days[regularRange.days.length - 1].dow])}`;
+      const partPeriodLabel = `${fmtDL(partRangeForLabel.from, DOW[partRangeForLabel.days[0].dow])}〜${fmtDL(partRangeForLabel.to, DOW[partRangeForLabel.days[partRangeForLabel.days.length - 1].dow])}`;
+
+      const colHdrCsv = `社員CD,氏名        ,    勤務,勤務時間,    有休,    出張,    欠勤,    他休,    遅刻,    遅刻,    早退,    早退,私用外出,早出残業,普通残業,深夜残業,特別残業,法外普通,法外深夜,法内普通,法内深夜,超過不足\r\n`;
+      const writeSumRowCsv = (s: SumR) => {
+        // 全角空白6つで氏名を12桁に整形
+        const fill = "　".repeat(6);
+        const nm = (s.name + fill).slice(0, 12);
+        return [s.code, nm,
+          pad(s.w > 0 ? `${s.w}.0` : "", 8), pad(s.sm > 0 ? fmMin(s.sm) : "", 8),
+          pad(s.y > 0 ? `${s.y}` : "", 8), pad(s.sh > 0 ? `${s.sh}` : "", 8),
+          pad(s.k > 0 ? `${s.k}` : "", 8), pad(s.oth > 0 ? `${s.oth}` : "", 8),
+          pad(s.lc > 0 ? `${s.lc}.0` : "", 8), pad(s.lm > 0 ? fmMin(s.lm) : "", 8),
+          pad(s.ec > 0 ? `${s.ec}.0` : "", 8), pad(s.em > 0 ? fmMin(s.em) : "", 8),
+          pad("", 8), pad("", 8), pad(s.om > 0 ? fmMin(s.om) : "", 8),
+          pad("", 8), pad("", 8), pad("", 8), pad("", 8), pad("", 8), pad("", 8),
+          pad(s.um !== 0 ? fmMin(s.um) : "", 8)].join(",") + "\r\n";
+      };
+      const seiRowsCsv = sumRows.filter(s => s.employmentType !== "パート");
+      const partRowsCsv = sumRows.filter(s => s.employmentType === "パート");
+
+      let sCsv = `【勤務合計表】\r\n${selYear}年${mm}月\r\n所属CD：指定なし\r\n社員CD：指定なし\r\n`;
+      // 正社員ブロック
+      sCsv += `［正社員］集計期間：${seiPeriodLabel}\r\n`;
+      sCsv += colHdrCsv;
+      for (const s of seiRowsCsv) sCsv += writeSumRowCsv(s);
+      // パートブロック
+      sCsv += `［パート］集計期間：${partPeriodLabel}\r\n`;
+      sCsv += colHdrCsv;
+      for (const s of partRowsCsv) sCsv += writeSumRowCsv(s);
+      // 総合計1行（従来どおり）
       sCsv += ["合計  ", "            ",
         pad(gW > 0 ? `${gW}.0` : "", 8), pad(gSc > 0 ? fmMin(gSc) : "", 8),
         pad(gY > 0 ? `${gY}` : "", 8), pad(gSh > 0 ? `${gSh}` : "", 8),
@@ -264,6 +296,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const kLbl = ["規定", "勤務", "有休", "有休残", "公休", "欠勤", "代休", "振替", "病欠"];
       const thinBorder: any = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
       const hdrFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDDDDD" } };
+      const sectionFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3CD" } };
       const boldFont: any = { bold: true, size: 9, name: "Yu Gothic" };
       const normFont: any = { size: 8, name: "Yu Gothic" };
       const smallFont: any = { size: 7, name: "Yu Gothic" };
@@ -304,22 +337,32 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         colWidths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
       }
 
-      /* ══ 勤務合計表Excel（出張追加、他休集計）══ */
+      /* ══ 勤務合計表Excel（正社員/パートの2セクション、各ブロックに集計期間ラベル、総合計1行）══ */
       setProgress("勤務合計表Excel生成中...");
       const sWb = new ExcelJS.Workbook();
       const sWs = sWb.addWorksheet("勤務合計表");
       sWs.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1 };
+      const sHdrs = ["社員CD", "氏名", "勤務\n回", "勤務\n時間", "有休", "出張", "欠勤", "他休", "遅刻\n回", "遅刻\n時間", "早退\n回", "早退\n時間", "私用\n外出", "早出\n残業", "普通\n残業", "深夜\n残業", "特別\n残業", "法外\n普通", "法外\n深夜", "法内\n普通", "法内\n深夜", "超過\n不足"];
+
       let sr = 1;
-      sWs.getCell(sr, 1).value = regHdr; sWs.getCell(sr, 1).font = normFont; sr++;
+      sWs.getCell(sr, 1).value = `${selYear}年${mm}月`; sWs.getCell(sr, 1).font = normFont; sr++;
       sWs.getCell(sr, 1).value = "所属CD：指定なし"; sWs.getCell(sr, 1).font = normFont; sr++;
       sWs.getCell(sr, 1).value = "社員CD：指定なし"; sWs.getCell(sr, 1).font = normFont; sr++;
-      const sHdrs = ["社員CD", "氏名", "勤務\n回", "勤務\n時間", "有休", "出張", "欠勤", "他休", "遅刻\n回", "遅刻\n時間", "早退\n回", "早退\n時間", "私用\n外出", "早出\n残業", "普通\n残業", "深夜\n残業", "特別\n残業", "法外\n普通", "法外\n深夜", "法内\n普通", "法内\n深夜", "超過\n不足"];
-      for (let c = 0; c < sHdrs.length; c++) {
-        const cell = sWs.getCell(sr, c + 1);
-        cell.value = sHdrs[c]; cell.font = boldFont; cell.alignment = { horizontal: "center", wrapText: true }; cell.border = thinBorder; cell.fill = hdrFill;
-      }
-      sr++;
-      for (const s of sumRows) {
+
+      const writeSectionHeader = (label: string) => {
+        const cell = sWs.getCell(sr, 1);
+        cell.value = label; cell.font = boldFont; cell.fill = sectionFill;
+        sWs.mergeCells(sr, 1, sr, sHdrs.length);
+        sr++;
+      };
+      const writeColHeader = () => {
+        for (let c = 0; c < sHdrs.length; c++) {
+          const cell = sWs.getCell(sr, c + 1);
+          cell.value = sHdrs[c]; cell.font = boldFont; cell.alignment = { horizontal: "center", wrapText: true }; cell.border = thinBorder; cell.fill = hdrFill;
+        }
+        sr++;
+      };
+      const writeSumRowExcel = (s: SumR) => {
         const vals = [s.code, s.name,
           s.w > 0 ? `${s.w}.0` : "", s.sm > 0 ? fmMin(s.sm) : "",
           s.y > 0 ? `${s.y}` : "", s.sh > 0 ? `${s.sh}` : "",
@@ -334,7 +377,19 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           cell.value = vals[c]; cell.font = normFont; cell.alignment = { horizontal: c === 1 ? "left" : "center" }; cell.border = thinBorder;
         }
         sr++;
-      }
+      };
+
+      // 正社員ブロック
+      writeSectionHeader(`［正社員］集計期間：${seiPeriodLabel}`);
+      writeColHeader();
+      for (const s of seiRowsCsv) writeSumRowExcel(s);
+
+      // パートブロック
+      writeSectionHeader(`［パート］集計期間：${partPeriodLabel}`);
+      writeColHeader();
+      for (const s of partRowsCsv) writeSumRowExcel(s);
+
+      // 総合計1行（従来どおり）
       const gVals = ["合計", "",
         gW > 0 ? `${gW}.0` : "", gSc > 0 ? fmMin(gSc) : "",
         gY > 0 ? `${gY}` : "", gSh > 0 ? `${gSh}` : "",

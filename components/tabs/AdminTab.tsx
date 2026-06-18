@@ -1014,6 +1014,13 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     let scopedEmps = emps;
     if (perm === "admin") scopedEmps = emps.filter(e => canEditPunch(myCode, e.store_id, e.department));
     if (storeFilter !== "all") scopedEmps = scopedEmps.filter(e => matchStoreFilter(e, storeFilter));
+    // 対象期間末日より後の入社者を除外（雇用区分別の末日: 正社員=regularRange.to, パート=partRange.to）
+    scopedEmps = scopedEmps.filter((e: any) => {
+      if (!e.hire_date) return true;
+      const hd = String(e.hire_date).slice(0, 10);
+      const end = e.employment_type === "パート" ? partRange.to : regularRange.to;
+      return hd <= end;
+    });
 
     const empIds = scopedEmps.map(e => e.id);
     const empMap: Record<string, EmpOption> = {};
