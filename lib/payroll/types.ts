@@ -31,6 +31,8 @@ export interface PayrollConfig {
 
   // 通勤手当（パート日割用）
   commute_allowance_daily_divisor: number; // 21固定
+  commute_daily_amount: number | null; // payroll_commute_master.daily_amount（パート日割）
+  commute_distance_km: number | null;
 }
 
 export interface AttendanceRecord {

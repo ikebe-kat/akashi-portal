@@ -257,7 +257,14 @@ function calculateParttime(
   const baseSalary = Math.round(
     (weekdayMinutes / 60) * rateWeekday + (saturdayMinutes / 60) * rateSaturday + (sundayMinutes / 60) * rateSunday
   );
-  const commuteAllowance = emp.commute_allowance > 0 ? Math.round((emp.commute_allowance / PART_COMMUTE_DIVISOR) * workDays) : 0;
+  let commuteAllowance = 0;
+  if (emp.commute_daily_amount != null) {
+    commuteAllowance = emp.commute_daily_amount * workDays;
+  } else if (emp.commute_distance_km == null && emp.commute_allowance > 0) {
+    warnings.push(`⚠要確認: ${emp.employee_name} 通勤距離が未設定のため通勤手当を算出できません`);
+  } else if (emp.commute_distance_km != null && emp.commute_daily_amount == null) {
+    warnings.push(`⚠要確認: ${emp.employee_name} 通勤距離${emp.commute_distance_km}kmに対応する日割単価がマスタに未設定です`);
+  }
   const grossTotal = baseSalary + commuteAllowance + adjustmentAmount + paidLeaveAmount;
 
   return {
@@ -360,7 +367,7 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
   if (error) throw new Error(`従業員データ取得エラー: ${error.message}`);
 
   const { data: commuteMaster } = await supabase.from('payroll_commute_master')
-    .select('distance_from, distance_to, monthly_amount').eq('company_id', AKASHI_COMPANY_ID).order('distance_from');
+    .select('distance_from, distance_to, monthly_amount, daily_amount').eq('company_id', AKASHI_COMPANY_ID).order('distance_from');
   const { data: qualMaster } = await supabase.from('payroll_qualification_master')
     .select('qualification_name, allowance').eq('company_id', AKASHI_COMPANY_ID);
 
@@ -369,6 +376,11 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
     if (!km || !commuteMaster) return 0;
     const t = commuteMaster.find((t: any) => km >= t.distance_from && (t.distance_to === null || km < t.distance_to));
     return t ? t.monthly_amount : 0;
+  };
+  const calcCommuteDailyRate = (km: number | null): number | null => {
+    if (km == null || !commuteMaster) return null;
+    const t = commuteMaster.find((t: any) => Number(km) >= Number(t.distance_from) && (t.distance_to === null || Number(km) < Number(t.distance_to)));
+    return t?.daily_amount != null ? Number(t.daily_amount) : null;
   };
   const calcQual = (q: any) => !q || !Array.isArray(q) ? 0 : q.reduce((s: number, n: string) => s + (qualMap.get(n) || 0), 0);
   const calcDep = (c: number | null) => (c || 0) * DEPENDENT_ALLOWANCE_PER_PERSON;
@@ -386,6 +398,8 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
       fixed_overtime_hours: 25, salary_grade: c.rank || null,
       hourly_rate_weekday: c.hourly_wage_weekday || null, hourly_rate_saturday: c.hourly_wage_saturday || null,
       hourly_rate_sunday: c.hourly_wage_sunday || null, commute_allowance_daily_divisor: PART_COMMUTE_DIVISOR,
+      commute_daily_amount: calcCommuteDailyRate(c.commute_distance_km),
+      commute_distance_km: c.commute_distance_km != null ? Number(c.commute_distance_km) : null,
     };
   });
 }
