@@ -174,7 +174,15 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.overtime_hours && a.overtime_hours > 0) { ot = fmDec(a.overtime_hours); sO += a.overtime_hours; }
             if (a.scheduled_hours && a.scheduled_hours > 0) { sc = fmDec(a.scheduled_hours); sS += a.scheduled_hours; }
             if (a.contract_hours && a.contract_hours > 0) { ct = fmDec(a.contract_hours); sC += a.contract_hours; }
-            if (a.over_under && a.over_under !== 0) { ou = fmMin(a.over_under); sU += a.over_under; }
+            if (!isPart && a.actual_hours != null && a.scheduled_hours != null) {
+              const hasPunch = !!(a.punch_in_raw || a.punch_in);
+              const isLeave = a.reason && /有給|欠勤|公休|選択休|希望休|代休/.test(a.reason);
+              if (hasPunch && !isLeave) {
+                const dev = a.actual_hours - a.scheduled_hours;
+                if (dev !== 0) ou = fmDec(dev);
+                sU += dev;
+              }
+            }
             if (a.punch_in_raw || a.punch_in) cI++;
             if (a.punch_out_raw || a.punch_out) cO2++;
             if (a.overtime_hours && a.overtime_hours > 0) cOt++;
@@ -198,7 +206,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           dRows.push([dateCol, dw, rs, pi, po, lt, et, "", ot, "", sc, ct, ou]);
           iCsv += [dateCol, dw, pad(rs, 4), pad(pi, 5), pad(po, 5), pad(lt, 8), pad(et, 8), pad("", 8), pad(ot, 8), pad("", 8), pad(sc, 8), pad(ct, 8), pad(ou, 8)].join(",") + "\r\n";
         }
-        const totVals = ["", "", "", "", "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmDec(sO) : "", "", sS ? fmDec(sS) : "", sC ? fmDec(sC) : "", sU ? fmMin(sU) : ""];
+        const totVals = ["", "", "", "", "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmDec(sO) : "", "", sS ? fmDec(sS) : "", sC ? fmDec(sC) : "", sU !== 0 ? fmDec(sU) : ""];
         iCsv += ["合計 ", "  ", "    ", "     ", "     ", pad(totVals[5], 8), pad(totVals[6], 8), pad("", 8), pad(totVals[8], 8), pad("", 8), pad(totVals[10], 8), pad(totVals[11], 8), pad(totVals[12], 8)].join(",") + "\r\n";
         const empHolCount = empHols.size;
         const empDays = empRange.days.length;
@@ -248,7 +256,6 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.late_minutes && a.late_minutes > 0) { b.lc++; b.lm += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { b.ec++; b.em += a.early_leave_minutes; }
             if (a.overtime_hours) b.om += Math.round(a.overtime_hours * 60);
-            if (a.over_under) b.um += a.over_under;
           }
           for (let bi = 0; bi < 3; bi++) {
             const b = bk[bi];
@@ -277,7 +284,6 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.late_minutes && a.late_minutes > 0) { lc++; lm += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { ec++; em2 += a.early_leave_minutes; }
             if (a.overtime_hours) om += Math.round(a.overtime_hours * 60);
-            if (a.over_under) um += a.over_under;
           }
           sumRows.push({ code: empCode, name: ip.emp.full_name, employmentType: "パート", w, sm, y, sh, k, oth, lc, lm, ec, em: em2, om, um });
           gW += w; gSc += sm; gY += y; gSh += sh; gKk += k; gOth += oth; gLc += lc; gLm += lm; gEc += ec; gEm += em2; gO += om; gU += um;
@@ -297,7 +303,13 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.late_minutes && a.late_minutes > 0) { lc++; lm += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { ec++; em2 += a.early_leave_minutes; }
             if (a.overtime_hours) om += Math.round(a.overtime_hours * 60);
-            if (a.over_under) um += a.over_under;
+            {
+              const hasPunch = !!(a.punch_in_raw || a.punch_in);
+              const isLeave = a.reason && /有給|欠勤|公休|選択休|希望休|代休/.test(a.reason);
+              if (hasPunch && !isLeave && a.actual_hours != null && a.scheduled_hours != null) {
+                um += a.actual_hours - a.scheduled_hours;
+              }
+            }
           }
           sumRows.push({ code: empCode, name: ip.emp.full_name, employmentType: ip.emp.employment_type, w, sm, y, sh, k, oth, lc, lm, ec, em: em2, om, um });
           gW += w; gSc += sm; gY += y; gSh += sh; gKk += k; gOth += oth; gLc += lc; gLm += lm; gEc += ec; gEm += em2; gO += om; gU += um;
@@ -322,7 +334,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           pad(s.ec > 0 ? `${s.ec}.0` : "", 8), pad(s.em > 0 ? fmMin(s.em) : "", 8),
           pad("", 8), pad("", 8), pad(s.om > 0 ? fmMin(s.om) : "", 8),
           pad("", 8), pad("", 8), pad("", 8), pad("", 8), pad("", 8), pad("", 8),
-          pad(s.um !== 0 ? fmMin(s.um) : "", 8)].join(",") + "\r\n";
+          pad(s.um !== 0 ? fmDec(s.um) : "", 8)].join(",") + "\r\n";
       };
       const seiRowsCsv = sumRows.filter(s => s.employmentType !== "パート");
       const partRowsCsv = sumRows.filter(s => s.employmentType === "パート");
@@ -345,7 +357,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         pad(gEc > 0 ? `${gEc}.0` : "", 8), pad(gEm > 0 ? fmMin(gEm) : "", 8),
         pad("", 8), pad("", 8), pad(gO > 0 ? fmMin(gO) : "", 8),
         pad("", 8), pad("", 8), pad("", 8), pad("", 8), pad("", 8), pad("", 8),
-        pad(gU !== 0 ? fmMin(gU) : "", 8)].join(",") + "\r\n";
+        pad(gU !== 0 ? fmDec(gU) : "", 8)].join(",") + "\r\n";
 
       /* ══ 勤務個人表Excel ══ */
       setProgress("勤務個人表Excel生成中...");
