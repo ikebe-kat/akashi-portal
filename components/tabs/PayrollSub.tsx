@@ -128,23 +128,6 @@ export default function PayrollSub({ employee }: { employee: any }) {
         .eq("target_month", parseInt(yearMonth.split("-")[1]))
         .order("employee_id");
       if (fe) throw fe;
-      // 有給日数を取得（対象月のattendance_dailyから承認済み有給を集計）
-      const [y, m] = yearMonth.split("-").map(Number);
-      const monthStart = `${y}-${String(m).padStart(2,"0")}-01`;
-      const monthEnd = `${y}-${String(m).padStart(2,"0")}-${new Date(y, m, 0).getDate()}`;
-      const { data: attData } = await supabase.from("attendance_daily")
-        .select("employee_id, reason")
-        .eq("company_id", AKASHI_COMPANY_ID)
-        .gte("attendance_date", monthStart).lte("attendance_date", monthEnd)
-        .like("reason", "%有給%");
-      const leaveDaysMap: Record<string, number> = {};
-      (attData || []).forEach((a: any) => {
-        if (!a.reason) return;
-        let days = 0;
-        if (a.reason.includes("有給（全日）")) days = 1;
-        else if (a.reason.includes("午前有給") || a.reason.includes("午後有給")) days = 0.5;
-        if (days > 0) leaveDaysMap[a.employee_id] = (leaveDaysMap[a.employee_id] || 0) + days;
-      });
 
       // flatten & sort by employee_code
       const mapped = (data || []).map((r: any) => {
@@ -158,7 +141,7 @@ export default function PayrollSub({ employee }: { employee: any }) {
           hourly_rate_weekday: cfg.hourly_wage_weekday || 0,
           hourly_rate_saturday: cfg.hourly_wage_saturday || 0,
           hourly_rate_sunday: cfg.hourly_wage_sunday || 0,
-          paid_leave_days: leaveDaysMap[r.employee_id] || 0,
+          paid_leave_days: r.paid_leave_days || 0,
           paid_leave_amount: r.paid_leave_amount || 0,
         };
       });
