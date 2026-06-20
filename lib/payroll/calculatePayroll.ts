@@ -21,8 +21,8 @@ const EXCLUDE_CODES = ['D02', 'D18', 'D49', 'D67']; // KAT WORLD側で給与処�
 // ============================================
 // メイン: 全従業員の給与計算
 // ============================================
-export async function calculateAll(params: PayrollCalcParams): Promise<PayrollResult[]> {
-  const { yearMonth } = params;
+export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserve' | 'full' }): Promise<PayrollResult[]> {
+  const { yearMonth, mode = 'preserve' } = params;
 
   const fulltimePeriod = getFulltimePeriod(yearMonth);
   const parttimePeriod = getParttimePeriod(yearMonth);
@@ -54,7 +54,7 @@ export async function calculateAll(params: PayrollCalcParams): Promise<PayrollRe
     const empAttendance = attendance.filter(a => a.employee_id === emp.employee_id);
     const empLeaves = leaveRequests.filter(l => l.employee_id === emp.employee_id);
     const existingAdj = existingPayroll.find(p => p.employee_id === emp.employee_id);
-    const adjustmentAmount = existingAdj?.adjustment_allowance ?? 0;
+    const adjustmentAmount = mode === 'full' ? 0 : (existingAdj?.adjustment_allowance ?? 0);
 
     if (isParttime) {
       results.push(calculateParttime(emp, period, empAttendance, empLeaves, yearMonth, adjustmentAmount));
@@ -444,31 +444,129 @@ async function fetchExistingPayroll(yearMonth: string) {
 // ============================================
 // DB保存
 // ============================================
-export async function savePayrollResults(results: PayrollResult[], yearMonth: string): Promise<void> {
+
+async function fetchExistingPayrollFull(yearMonth: string) {
   const [y, m] = yearMonth.split('-').map(Number);
-  // 削除は対象が0行でも問題ない（初回計算のケースが該当）。エラーのみ検知。
+  const { data } = await supabase.from('payroll_monthly')
+    .select('id, employee_id, base_salary, position_allowance, qualification_allowance, dependent_allowance, commute_allowance, fixed_overtime, overtime_pay, adjustment_allowance, absence_deduction, paid_leave_amount, hourly_weekday_minutes, hourly_saturday_minutes, hourly_sunday_minutes')
+    .eq('company_id', AKASHI_COMPANY_ID).eq('target_year', y).eq('target_month', m);
+  return data || [];
+}
+
+async function fetchChangeLogsForMonth(pmIds: string[]) {
+  if (pmIds.length === 0) return [];
+  const { data } = await supabase.from('payroll_change_logs')
+    .select('employee_id, field_name, changed_by, changed_at, old_value, new_value')
+    .in('payroll_monthly_id', pmIds);
+  return data || [];
+}
+
+export async function getChangeLogCount(yearMonth: string): Promise<number> {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const { data: pmData } = await supabase.from('payroll_monthly')
+    .select('id')
+    .eq('company_id', AKASHI_COMPANY_ID).eq('target_year', y).eq('target_month', m);
+  if (!pmData || pmData.length === 0) return 0;
+  const { data } = await supabase.from('payroll_change_logs')
+    .select('id')
+    .in('payroll_monthly_id', pmData.map((r: any) => r.id));
+  return data?.length || 0;
+}
+
+export async function savePayrollResults(results: PayrollResult[], yearMonth: string, mode: 'preserve' | 'full' = 'full'): Promise<void> {
+  const [y, m] = yearMonth.split('-').map(Number);
+
+  const existing = await fetchExistingPayrollFull(yearMonth);
+  const pmIds = existing.map((r: any) => r.id);
+
+  let preserveMap: Map<string, Map<string, number>> | null = null;
+  let savedChangeLogs: any[] = [];
+
+  if (mode === 'preserve' && pmIds.length > 0) {
+    const changeLogs = await fetchChangeLogsForMonth(pmIds);
+    if (changeLogs.length > 0) {
+      savedChangeLogs = changeLogs;
+      preserveMap = new Map();
+      for (const log of changeLogs) {
+        const empRow = existing.find((r: any) => r.employee_id === log.employee_id);
+        if (!empRow) continue;
+        if (!preserveMap.has(log.employee_id)) preserveMap.set(log.employee_id, new Map());
+        preserveMap.get(log.employee_id)!.set(log.field_name, (empRow as any)[log.field_name] ?? 0);
+      }
+    }
+  }
+
+  if (pmIds.length > 0) {
+    const { error: clDeleteError } = await supabase.from('payroll_change_logs').delete()
+      .in('payroll_monthly_id', pmIds);
+    if (clDeleteError) throw new Error(`変更ログ削除エラー: ${clDeleteError.message}`);
+  }
+
   const { error: deleteError } = await supabase.from('payroll_monthly').delete()
     .eq('company_id', AKASHI_COMPANY_ID).eq('target_year', y).eq('target_month', m);
   if (deleteError) throw new Error(`既存データ削除エラー: ${deleteError.message}`);
 
-  const rows = results.map(r => ({
-    company_id: AKASHI_COMPANY_ID, employee_id: r.employee_id, target_year: y, target_month: m,
-    status: 'draft' as const, base_salary: r.base_salary, position_allowance: r.position_allowance,
-    qualification_allowance: r.qualification_allowance, dependent_allowance: r.dependent_allowance,
-    commute_allowance: r.commute_allowance, fixed_overtime: r.fixed_overtime_amount,
-    overtime_pay: r.excess_overtime_amount, adjustment_allowance: r.adjustment_amount,
-    absence_deduction: r.absence_deduction, total_payment: r.gross_total,
-    work_days: r.work_days, actual_work_minutes: r.total_work_minutes,
-    overtime_minutes: r.overtime_minutes, absence_days: r.absence_days,
-    paid_leave_days: r.paid_leave_days, paid_leave_amount: r.paid_leave_amount || 0,
-    hourly_weekday_minutes: r.weekday_minutes, hourly_saturday_minutes: r.saturday_minutes,
-    hourly_sunday_minutes: r.sunday_minutes, overtime_exceeded: r.excess_overtime_amount > 0,
-    calculated_at: new Date().toISOString(),
-  }));
+  const rows = results.map(r => {
+    const row: any = {
+      company_id: AKASHI_COMPANY_ID, employee_id: r.employee_id, target_year: y, target_month: m,
+      status: 'draft', base_salary: r.base_salary, position_allowance: r.position_allowance,
+      qualification_allowance: r.qualification_allowance, dependent_allowance: r.dependent_allowance,
+      commute_allowance: r.commute_allowance, fixed_overtime: r.fixed_overtime_amount,
+      overtime_pay: r.excess_overtime_amount, adjustment_allowance: r.adjustment_amount,
+      absence_deduction: r.absence_deduction, total_payment: r.gross_total,
+      work_days: r.work_days, actual_work_minutes: r.total_work_minutes,
+      overtime_minutes: r.overtime_minutes, absence_days: r.absence_days,
+      paid_leave_days: r.paid_leave_days, paid_leave_amount: r.paid_leave_amount || 0,
+      hourly_weekday_minutes: r.weekday_minutes, hourly_saturday_minutes: r.saturday_minutes,
+      hourly_sunday_minutes: r.sunday_minutes, overtime_exceeded: r.excess_overtime_amount > 0,
+      calculated_at: new Date().toISOString(),
+    };
+
+    if (preserveMap?.has(r.employee_id)) {
+      const fields = preserveMap.get(r.employee_id)!;
+      for (const [field, value] of fields) {
+        if (field in row) row[field] = value;
+      }
+      if (r.employment_type === 'パート') {
+        row.total_payment = (row.base_salary || 0) + (row.commute_allowance || 0)
+          + (row.adjustment_allowance || 0) + (row.paid_leave_amount || 0);
+      } else {
+        row.total_payment = (row.base_salary || 0) + (row.position_allowance || 0)
+          + (row.qualification_allowance || 0) + (row.commute_allowance || 0)
+          + (row.dependent_allowance || 0) + (row.fixed_overtime || 0)
+          + (row.overtime_pay || 0) + (row.adjustment_allowance || 0) - (row.absence_deduction || 0);
+      }
+    }
+
+    return row;
+  });
 
   if (rows.length === 0) return;
-  const { data: ins, error: insertError } = await supabase.from('payroll_monthly').insert(rows).select('id');
+  const { data: ins, error: insertError } = await supabase.from('payroll_monthly').insert(rows).select('id, employee_id');
   if (insertError) throw new Error(`給与データ保存エラー: ${insertError.message}`);
   if (!ins || ins.length === 0) throw new Error('給与データを保存できませんでした（権限設定の可能性）');
   if (ins.length !== rows.length) console.warn(`給与データ保存: ${ins.length}/${rows.length} 行のみ反映（残りはRLS等で除外）`);
+
+  if (mode === 'preserve' && savedChangeLogs.length > 0) {
+    const empToPmId = new Map(ins.map((r: any) => [r.employee_id, r.id]));
+    const newLogs = savedChangeLogs
+      .map(log => {
+        const newPmId = empToPmId.get(log.employee_id);
+        if (!newPmId) return null;
+        return {
+          payroll_monthly_id: newPmId,
+          employee_id: log.employee_id,
+          changed_by: log.changed_by,
+          changed_at: log.changed_at,
+          field_name: log.field_name,
+          old_value: log.old_value,
+          new_value: log.new_value,
+        };
+      })
+      .filter(Boolean);
+    if (newLogs.length > 0) {
+      const { error: clInsertError } = await supabase.from('payroll_change_logs').insert(newLogs);
+      if (clInsertError) throw new Error(`変更ログ再保存エラー: ${clInsertError.message}`);
+    }
+  }
 }

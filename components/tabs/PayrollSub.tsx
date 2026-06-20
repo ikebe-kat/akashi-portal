@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { T, AKASHI_COMPANY_ID } from "@/lib/constants";
-import { calculateAll, savePayrollResults } from "@/lib/payroll/calculatePayroll";
+import { calculateAll, savePayrollResults, getChangeLogCount } from "@/lib/payroll/calculatePayroll";
 
 // AKASHI_COMPANY_ID は lib/constants.ts からimport済み
 
@@ -106,7 +106,8 @@ export default function PayrollSub({ employee }: { employee: any }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [calcStep, setCalcStep] = useState<'idle' | 'mode_select' | 'confirm_preserve' | 'confirm_full'>('idle');
+  const [changeLogCount, setChangeLogCount] = useState(0);
   const [editingCell, setEditingCell] = useState<string | null>(null); // "rowIdx-colKey"
   const [storeFilter, setStoreFilter] = useState("all");
   const [originalRows, setOriginalRows] = useState<any[]>([]); // 差分比較用
@@ -170,14 +171,33 @@ export default function PayrollSub({ employee }: { employee: any }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleCalculate = async () => {
-    if (rows.length > 0 && !showConfirm) { setShowConfirm(true); return; }
-    setShowConfirm(false); setCalculating(true); setError(null); setSuccess(null);
+  const isOwnerUser = ["D02", "D18", "D67"].includes(employee?.employee_code);
+
+  const handleCalculate = () => {
+    if (rows.length === 0) {
+      handleConfirmCalc('preserve');
+      return;
+    }
+    setCalcStep('mode_select');
+  };
+
+  const handleSelectMode = async (mode: 'preserve' | 'full') => {
+    if (mode === 'full') {
+      const count = await getChangeLogCount(yearMonth);
+      setChangeLogCount(count);
+      setCalcStep('confirm_full');
+    } else {
+      setCalcStep('confirm_preserve');
+    }
+  };
+
+  const handleConfirmCalc = async (mode: 'preserve' | 'full') => {
+    setCalcStep('idle'); setCalculating(true); setError(null); setSuccess(null);
     try {
-      const r = await calculateAll({ yearMonth });
-      await savePayrollResults(r, yearMonth);
+      const r = await calculateAll({ yearMonth, mode });
+      await savePayrollResults(r, yearMonth, mode);
       await loadData();
-      setSuccess("計算完了");
+      setSuccess(mode === 'preserve' ? "再計算完了（手修正を維持）" : "完全再計算完了");
     } catch (e: any) { setError(e.message); }
     finally { setCalculating(false); }
   };
@@ -426,12 +446,35 @@ export default function PayrollSub({ employee }: { employee: any }) {
         {rows.length > 0 && <span style={{ color: "#666", fontSize: 12 }}>最終: {new Date(Math.max(...rows.map(r => new Date(r.calculated_at).getTime()))).toLocaleString("ja-JP")}</span>}
       </div>
 
-      {showConfirm && (
+      {calcStep === 'mode_select' && (
+        <div style={{ padding: 14, marginBottom: 14, backgroundColor: "#e3f2fd", border: "1px solid #2196F3", borderRadius: 8, fontSize: 13 }}>
+          <p style={{ fontWeight: 700, marginBottom: 8 }}>計算モードを選択してください</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={() => handleSelectMode('preserve')} style={{ padding: "8px 16px", backgroundColor: "#1976D2", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>再計算（手修正を残す）</button>
+            {isOwnerUser && (
+              <button onClick={() => handleSelectMode('full')} style={{ padding: "8px 16px", backgroundColor: "#d32f2f", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>完全再計算（全部やり直し）</button>
+            )}
+            <button onClick={() => setCalcStep('idle')} style={{ padding: "8px 16px", backgroundColor: "#6c757d", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13 }}>キャンセル</button>
+          </div>
+        </div>
+      )}
+
+      {calcStep === 'confirm_preserve' && (
         <div style={{ padding: 14, marginBottom: 14, backgroundColor: "#fff3cd", border: "1px solid #ffc107", borderRadius: 8, fontSize: 13 }}>
-          <p style={{ fontWeight: 700, marginBottom: 6 }}>既にデータがあります。上書きしますか？</p>
+          <p style={{ fontWeight: 700, marginBottom: 6 }}>打刻データから再計算します。手修正した値はそのまま残ります。</p>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={handleCalculate} style={{ padding: "6px 14px", backgroundColor: "#dc3545", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>上書き</button>
-            <button onClick={() => setShowConfirm(false)} style={{ padding: "6px 14px", backgroundColor: "#6c757d", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>キャンセル</button>
+            <button onClick={() => handleConfirmCalc('preserve')} style={{ padding: "6px 14px", backgroundColor: "#1976D2", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>実行</button>
+            <button onClick={() => setCalcStep('idle')} style={{ padding: "6px 14px", backgroundColor: "#6c757d", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>キャンセル</button>
+          </div>
+        </div>
+      )}
+
+      {calcStep === 'confirm_full' && (
+        <div style={{ padding: 14, marginBottom: 14, backgroundColor: "#fce4ec", border: "1px solid #ef5350", borderRadius: 8, fontSize: 13 }}>
+          <p style={{ fontWeight: 700, marginBottom: 6, color: "#c62828" }}>⚠ 手修正{changeLogCount}件が消えます。全カラムを計算値で上書きします。よろしいですか？</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => handleConfirmCalc('full')} style={{ padding: "6px 14px", backgroundColor: "#d32f2f", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>完全再計算を実行</button>
+            <button onClick={() => setCalcStep('idle')} style={{ padding: "6px 14px", backgroundColor: "#6c757d", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>キャンセル</button>
           </div>
         </div>
       )}
