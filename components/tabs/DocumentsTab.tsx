@@ -40,9 +40,8 @@ export default function DocumentsTab({ employee }: { employee: any }) {
 
   useEffect(() => { fetchDocs(); }, [fetchDocs]);
 
-  // DLボタン押下 → ファイルURLを開く + confirmed_atを更新
+  // DLボタン押下 → 端末にダウンロード保存 + confirmed_atを更新
   const handleDownload = async (doc: DocRecord) => {
-    // confirmed_atが未設定なら更新（初回DLで確認済み）
     if (!doc.confirmed_at) {
       const { error } = await supabase
         .from("documents")
@@ -51,12 +50,23 @@ export default function DocumentsTab({ employee }: { employee: any }) {
       if (error) console.error("documents confirmed_at update err:", error);
     }
 
-    // ファイルURLがあれば開く
     if (doc.file_url) {
-      window.open(doc.file_url, "_blank");
+      try {
+        const res = await fetch(doc.file_url);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = `${doc.document_name}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      } catch {
+        window.open(doc.file_url, "_blank");
+      }
     }
 
-    // ローカル状態を更新
     setDocs((prev) =>
       prev.map((d) => d.id === doc.id ? { ...d, confirmed_at: d.confirmed_at || new Date().toISOString() } : d)
     );
