@@ -162,7 +162,8 @@ function calculateFulltime(
 
   const absenceBase = emp.base_salary + emp.position_allowance + emp.qualification_allowance
     + emp.fixed_overtime_amount + emp.dependent_allowance;
-  const absenceDeduction = absenceDays > 0 ? Math.round((absenceBase / AVERAGE_WORK_DAYS) * absenceDays) : 0;
+  const absenceDeduction = absenceDays > 0 && monthlyStandardHours > 0
+    ? Math.round(absenceBase / monthlyStandardHours * absenceDays * 8) : 0;
 
   const lateEarlyDeduction = totalLateEarlyMinutes > 0 && monthlyStandardHours > 0
     ? Math.round(absenceBase / monthlyStandardHours / 60 * totalLateEarlyMinutes) : 0;
