@@ -368,7 +368,7 @@ function reasonToLabel(r: string): string {
 interface HistoryItem { id: string; kind: "attendance"|"event"; action: "登録"|"変更"; who: string; what: string; targetDate: string; operatedAt: string; color: string; calDisplayName?: string | null; }
 
 // ── 新着コンポーネント ──────────────────────
-function RecentChanges({ employee, group }: { employee: any; group: string }) {
+function RecentChanges({ employee, group, surnameRoster }: { employee: any; group: string; surnameRoster: string[] }) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [limit, setLimit] = useState(30);
@@ -420,7 +420,7 @@ function RecentChanges({ employee, group }: { employee: any; group: string }) {
           <div style={{ width: 4, minHeight: 36, borderRadius: 2, backgroundColor: item.color, flexShrink: 0, marginTop: 2 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{calendarDisplayName(item.who, item.calDisplayName, items.map(i => i.who))}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{calendarDisplayName(item.who, item.calDisplayName, surnameRoster)}</span>
               <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, backgroundColor: item.action === "変更" ? "#FEF3C7" : "#DBEAFE", color: item.action === "変更" ? T.warning : T.yukyuBlue }}>{item.action}</span>
             </div>
             <div style={{ fontSize: 13, color: T.text, marginBottom: 2 }}>{item.what}</div>
@@ -517,6 +517,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
   // Supabaseデータ
   const [customEvents, setCustomEvents] = useState<CustomEvent[]>([]);
   const [attEvents, setAttEvents] = useState<AttendanceEvent[]>([]);
+  const [surnameRoster, setSurnameRoster] = useState<string[]>([]);
   const [holidayDates, setHolidayDates] = useState<{ date: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -561,6 +562,13 @@ export default function CalendarTab({ employee }: { employee: any }) {
       }));
 
     setAttEvents(mapped);
+
+    const { data: rosterData } = await supabase
+      .from("employees")
+      .select("full_name")
+      .eq("company_id", employee.company_id)
+      .eq("is_active", true);
+    setSurnameRoster([...new Set((rosterData || []).map((e: any) => e.full_name as string).filter(Boolean))]);
 
     // ダイハツ明石西: 定休日データ取得
     if (employee.company_id === AKASHI_CID) {
@@ -680,7 +688,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
             <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6, fontWeight: 600 }}>勤怠</div>
             {selAtt.map((a, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.borderLight}` }}>
-                <span style={{ fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{calendarDisplayName(a.full_name, a.calDisplayName, attEvents.map(e => e.full_name))}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{calendarDisplayName(a.full_name, a.calDisplayName, surnameRoster)}</span>
                 <ReasonBadges reason={displayReason(a.reason, (a as any).emp_code || "") || a.reason} />
               </div>
             ))}
@@ -839,7 +847,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
                             backgroundColor: isYukyu ? "#DBEAFE" : isKibou ? "#FEF9C3" : "#DCFCE7",
                             color: isYukyu ? T.yukyuBlue : isKibou ? T.warning : T.kinmuGreen,
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                          }}>{calendarDisplayName(a.full_name, a.calDisplayName, attEvents.map(e => e.full_name))}{isMobile ? "" : "　" + displayR.replace(/（.*?）/g, "")}</div>
+                          }}>{calendarDisplayName(a.full_name, a.calDisplayName, surnameRoster)}{isMobile ? "" : "　" + displayR.replace(/（.*?）/g, "")}</div>
                         );
                       })}
                       {/* カスタム予定バッジ（残り枠） */}
@@ -900,7 +908,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
               <button onClick={() => setSidePanel(null)} style={{ width: 28, height: 28, border: "none", backgroundColor: T.bg, borderRadius: "50%", color: T.textSec, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
-              {sidePanel === "recent" && <RecentChanges employee={employee} group={group} />}
+              {sidePanel === "recent" && <RecentChanges employee={employee} group={group} surnameRoster={surnameRoster} />}
               {sidePanel === "members" && <MemberList employee={employee} group={group} />}
             </div>
           </div>
@@ -908,7 +916,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
       )}
 
       {/* スマホ: 新着・メンバービュー */}
-      {isMobile && mobileView === "recent" && <div style={{ padding: "8px 4px" }}><RecentChanges employee={employee} group={group} /></div>}
+      {isMobile && mobileView === "recent" && <div style={{ padding: "8px 4px" }}><RecentChanges employee={employee} group={group} surnameRoster={surnameRoster} /></div>}
       {isMobile && mobileView === "members" && <div style={{ padding: "8px 4px" }}><MemberList employee={employee} group={group} /></div>}
 
       {/* スマホ: 右からスライドインする詳細パネル */}
