@@ -36,6 +36,7 @@ interface AttendanceEvent {
   reason: string;
   calGroup: string;
   emp_code: string;
+  calDisplayName?: string | null;
 }
 
 // ── ユーティリティ ──────────────────────────
@@ -364,7 +365,7 @@ function reasonToLabel(r: string): string {
   return r;
 }
 
-interface HistoryItem { id: string; kind: "attendance"|"event"; action: "登録"|"変更"; who: string; what: string; targetDate: string; operatedAt: string; color: string; }
+interface HistoryItem { id: string; kind: "attendance"|"event"; action: "登録"|"変更"; who: string; what: string; targetDate: string; operatedAt: string; color: string; calDisplayName?: string | null; }
 
 // ── 新着コンポーネント ──────────────────────
 function RecentChanges({ employee, group }: { employee: any; group: string }) {
@@ -380,7 +381,7 @@ function RecentChanges({ employee, group }: { employee: any; group: string }) {
 
     const [attRes, evRes] = await Promise.all([
       supabase.from("attendance_daily")
-        .select("employee_id, attendance_date, reason, created_at, updated_at, employees!inner(full_name, employee_code, store_id, department)")
+        .select("employee_id, attendance_date, reason, created_at, updated_at, employees!inner(full_name, employee_code, store_id, department, calendar_display_name)")
         .eq("company_id", employee.company_id).not("reason","is",null).neq("reason","").neq("reason","公休（全日）").neq("reason","休職")
         .not("updated_at","is",null).gte("updated_at", sinceStr).order("updated_at",{ascending:false}).limit(100),
       supabase.from("custom_events")
@@ -395,7 +396,7 @@ function RecentChanges({ employee, group }: { employee: any; group: string }) {
       if (group !== "all" && cg !== group) continue;
       const reason = row.reason as string;
       const isNew = row.created_at === row.updated_at;
-      history.push({ id: `att-${row.employee_id}-${row.attendance_date}`, kind: "attendance", action: isNew ? "登録" : "変更", who: emp.full_name || "不明", what: reasonToLabel(reason), targetDate: row.attendance_date as string, operatedAt: row.updated_at as string, color: reasonToColor(reason) });
+      history.push({ id: `att-${row.employee_id}-${row.attendance_date}`, kind: "attendance", action: isNew ? "登録" : "変更", who: emp.full_name || "不明", what: reasonToLabel(reason), targetDate: row.attendance_date as string, operatedAt: row.updated_at as string, color: reasonToColor(reason), calDisplayName: emp.calendar_display_name || null });
     }
     const calMapLocal: Record<string,string> = { all:"all", okubo:"okubo", uozumi:"uozumi", "全店舗":"all", "大久保店":"okubo", "魚住店":"uozumi" };
     for (const ev of (evRes.data || [])) {
@@ -419,7 +420,7 @@ function RecentChanges({ employee, group }: { employee: any; group: string }) {
           <div style={{ width: 4, minHeight: 36, borderRadius: 2, backgroundColor: item.color, flexShrink: 0, marginTop: 2 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.who.split(/\s+/)[0]}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{calendarDisplayName(item.who, item.calDisplayName, items.map(i => i.who))}</span>
               <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, backgroundColor: item.action === "変更" ? "#FEF3C7" : "#DBEAFE", color: item.action === "変更" ? T.warning : T.yukyuBlue }}>{item.action}</span>
             </div>
             <div style={{ fontSize: 13, color: T.text, marginBottom: 2 }}>{item.what}</div>
@@ -540,7 +541,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
 
     const { data: attData } = await supabase
       .from("attendance_daily")
-      .select("employee_id, attendance_date, reason, employees!inner(full_name, employee_code, store_id, department)")
+      .select("employee_id, attendance_date, reason, employees!inner(full_name, employee_code, store_id, department, calendar_display_name)")
       .eq("company_id", employee.company_id)
       .gte("attendance_date", monthStart)
       .lte("attendance_date", monthEnd)
@@ -556,6 +557,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
         attendance_date: row.attendance_date,
         reason: row.reason,
         calGroup: storeIdToCalGroup((row.employees as any)?.store_id || null, (row.employees as any)?.department || null),
+        calDisplayName: (row.employees as any)?.calendar_display_name || null,
       }));
 
     setAttEvents(mapped);
@@ -678,7 +680,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
             <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6, fontWeight: 600 }}>勤怠</div>
             {selAtt.map((a, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.borderLight}` }}>
-                <span style={{ fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{calendarDisplayName(a.full_name, a.emp_code)}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{calendarDisplayName(a.full_name, a.calDisplayName, attEvents.map(e => e.full_name))}</span>
                 <ReasonBadges reason={displayReason(a.reason, (a as any).emp_code || "") || a.reason} />
               </div>
             ))}
@@ -837,7 +839,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
                             backgroundColor: isYukyu ? "#DBEAFE" : isKibou ? "#FEF9C3" : "#DCFCE7",
                             color: isYukyu ? T.yukyuBlue : isKibou ? T.warning : T.kinmuGreen,
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                          }}>{calendarDisplayName(a.full_name, a.emp_code)}{isMobile ? "" : "　" + displayR.replace(/（.*?）/g, "")}</div>
+                          }}>{calendarDisplayName(a.full_name, a.calDisplayName, attEvents.map(e => e.full_name))}{isMobile ? "" : "　" + displayR.replace(/（.*?）/g, "")}</div>
                         );
                       })}
                       {/* カスタム予定バッジ（残り枠） */}

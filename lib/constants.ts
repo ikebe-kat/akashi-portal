@@ -139,16 +139,13 @@ export const displayChipLabel = (label: string, empCode: string): string => {
     .replace(/午前希望休/, "午前公休")
     .replace(/午後希望休/, "午後公休");
 };
-/** カレンダー用の短縮表示名（同姓対策） */
-const CAL_DISPLAY_OVERRIDES: Record<string, string> = {
-  "D02": "社長", "D18": "専務",
-};
-export function calendarDisplayName(fullName: string, empCode?: string): string {
-  if (empCode && CAL_DISPLAY_OVERRIDES[empCode]) return CAL_DISPLAY_OVERRIDES[empCode];
-  const parts = fullName.split(" ");
+/** カレンダー用の短縮表示名（同姓自動判定 + DB上書き） */
+export function calendarDisplayName(fullName: string, displayOverride?: string | null, allFullNames?: string[]): string {
+  if (displayOverride) return displayOverride;
+  const parts = (fullName || "").split(/\s+/);
   const surname = parts[0] || fullName;
   const given = parts[1] || "";
-  if (surname === "黒田") {
+  if (allFullNames && given && allFullNames.filter(n => (n || "").split(/\s+/)[0] === surname).length >= 2) {
     return surname + given.charAt(0);
   }
   return surname;

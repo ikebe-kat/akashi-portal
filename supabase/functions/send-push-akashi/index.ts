@@ -13,7 +13,18 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 /* ── ユーティリティ ── */
-const lastName = (fullName: string) => (fullName || "").split(/\s+/)[0] || fullName;
+const lastName = (fullName: string, displayOverride?: string | null, allNames?: string[]) => {
+  if (displayOverride) return displayOverride;
+  const parts = (fullName || "").split(/\s+/);
+  const surname = parts[0] || fullName;
+  if (allNames) {
+    const given = parts[1] || "";
+    if (given && allNames.filter(n => (n || "").split(/\s+/)[0] === surname).length >= 2) {
+      return surname + given.charAt(0);
+    }
+  }
+  return surname;
+};
 
 // 全カレンダー受信者（D02は除外）
 const ALL_CALENDAR_CODES = ["D18", "D49", "D67", "DA001", "DA002"];
@@ -80,7 +91,7 @@ serve(async (req) => {
 
     async function getEmpsAndStores(companyId: string) {
       const { data: allEmps } = await sb.from("employees")
-        .select("id, employee_code, full_name, store_id, department, employment_type, holiday_calendar, requires_punch")
+        .select("id, employee_code, full_name, store_id, department, employment_type, holiday_calendar, requires_punch, calendar_display_name")
         .eq("company_id", companyId)
         .eq("is_active", true);
       const { data: stores } = await sb.from("stores")
@@ -103,9 +114,10 @@ serve(async (req) => {
         : action === "updated"
         ? `${creatorName}が予定を編集しました`
         : `${creatorName}が予定を削除しました`;
-      const body = `${calLabel}：${lastName(creatorName)} ${event.title} ${shortDate(event.start_date)}`;
-
       const { allEmps, storeMap } = await getEmpsAndStores(event.company_id);
+      const allNames = allEmps.map((e: any) => e.full_name);
+      const creatorEmp = allEmps.find((e: any) => e.id === (event.creator_employee_id || null));
+      const body = `${calLabel}：${lastName(creatorName, creatorEmp?.calendar_display_name, allNames)} ${event.title} ${shortDate(event.start_date)}`;
 
       const creatorId = event.creator_employee_id || null;
       for (const emp of allEmps) {
@@ -176,7 +188,8 @@ serve(async (req) => {
       if (payload.end_date && payload.end_date !== attendance_date) {
         bodyDate = `${dateShort}〜${shortDate(payload.end_date)}`;
       }
-      const body = `${storeShort}：${lastName(employee_name)} ${bodyDate}`;
+      const allNames1 = _emps1.map((e: any) => e.full_name);
+      const body = `${storeShort}：${lastName(employee_name, _emp1?.calendar_display_name, allNames1)} ${bodyDate}`;
 
       const { allEmps, storeMap } = await getEmpsAndStores(company_id);
 
@@ -217,7 +230,8 @@ serve(async (req) => {
       else return new Response(JSON.stringify({ sent: 0, reason: "not a notifiable reason" }), { headers: { ...corsHeaders } });
 
       const title = `${employee_name}が${reasonLabel}を取り消しました`;
-      const body = `${storeShort}：${lastName(employee_name)} ${dateShort}`;
+      const allNames2 = _emps2.map((e: any) => e.full_name);
+      const body = `${storeShort}：${lastName(employee_name, _emp2?.calendar_display_name, allNames2)} ${dateShort}`;
 
       const { allEmps, storeMap } = await getEmpsAndStores(company_id);
 
@@ -278,7 +292,7 @@ serve(async (req) => {
         !!rs && (rs.includes("有給") || rs.includes("選択休") || rs.includes("代休") ||
                  rs === "欠勤" || rs === "公休" || rs === "休職" || rs === "休日");
 
-      const unpunched: { id: string; code: string; name: string; storeId: string }[] = [];
+      const unpunched: { id: string; code: string; name: string; storeId: string; calDisplayName: string | null }[] = [];
 
       for (const emp of allEmps) {
         if (emp.employee_code?.startsWith("test")) continue; // テスト社員除外
@@ -317,6 +331,7 @@ serve(async (req) => {
             code: emp.employee_code,
             name: emp.full_name,
             storeId: emp.store_id,
+            calDisplayName: emp.calendar_display_name || null,
           });
         }
       }
@@ -347,7 +362,8 @@ serve(async (req) => {
         if (!mgrEmp) continue;
         const list = unpunched.filter(mgr.filter);
         if (list.length === 0) continue;
-        const names = list.slice(0, 5).map((u) => lastName(u.name)).join("、");
+        const alertAllNames = allEmps.map((e: any) => e.full_name);
+        const names = list.slice(0, 5).map((u) => lastName(u.name, u.calDisplayName, alertAllNames)).join("、");
         const suffix = list.length > 5 ? `、他${list.length - 5}名` : "";
         targets.push({
           employee_id: mgrEmp.id,
@@ -378,9 +394,10 @@ serve(async (req) => {
 
       const { allEmps, storeMap } = await getEmpsAndStores(company_id);
 
-      const empMap: Record<string, { name: string; storeName: string; department: string; code: string }> = {};
+      const allNames = allEmps.map((e: any) => e.full_name);
+      const empMap: Record<string, { name: string; storeName: string; department: string; code: string; calDisplayName: string | null }> = {};
       allEmps.forEach((e: any) => {
-        empMap[e.id] = { name: e.full_name, storeName: storeMap[e.store_id] || "", department: e.department || "", code: e.employee_code };
+        empMap[e.id] = { name: e.full_name, storeName: storeMap[e.store_id] || "", department: e.department || "", code: e.employee_code, calDisplayName: e.calendar_display_name || null };
       });
 
       const leaveItems: { label: string; targetCal: string }[] = [];
@@ -388,16 +405,17 @@ serve(async (req) => {
         const emp = empMap[att.employee_id];
         if (!emp) continue;
         const r = att.reason;
+        const dn = lastName(emp.name, emp.calDisplayName, allNames);
         let label = "";
-        if (r.includes("有給（全日）")) label = `${lastName(emp.name)}:有給`;
-        else if (r.includes("午前有給")) label = `${lastName(emp.name)}:午前有給`;
-        else if (r.includes("午後有給")) label = `${lastName(emp.name)}:午後有給`;
-        else if (r.includes("選択休（全日）")) label = `${lastName(emp.name)}:選択休`;
-        else if (r.includes("午前選択休")) label = `${lastName(emp.name)}:午前選択休`;
-        else if (r.includes("午後選択休")) label = `${lastName(emp.name)}:午後選択休`;
-        else if (r.includes("代休")) label = `${lastName(emp.name)}:代休`;
-        else if (r.includes("出張")) label = `${lastName(emp.name)}:出張`;
-        else if (r === "欠勤") label = `${lastName(emp.name)}:欠勤`;
+        if (r.includes("有給（全日）")) label = `${dn}:有給`;
+        else if (r.includes("午前有給")) label = `${dn}:午前有給`;
+        else if (r.includes("午後有給")) label = `${dn}:午後有給`;
+        else if (r.includes("選択休（全日）")) label = `${dn}:選択休`;
+        else if (r.includes("午前選択休")) label = `${dn}:午前選択休`;
+        else if (r.includes("午後選択休")) label = `${dn}:午後選択休`;
+        else if (r.includes("代休")) label = `${dn}:代休`;
+        else if (r.includes("出張")) label = `${dn}:出張`;
+        else if (r === "欠勤") label = `${dn}:欠勤`;
         else continue;
 
         const tc = resolveCalendarGroup(emp.code, emp.department, emp.storeName);
@@ -504,8 +522,10 @@ serve(async (req) => {
       const { allEmps } = await getEmpsAndStores(company_id);
       const storeShort = resolveStoreShort(store_name || "");
       const dateShort = shortDate(attendance_date);
+      const allNamesLeave = allEmps.map((e: any) => e.full_name);
+      const leaveEmp = allEmps.find((e: any) => e.full_name === employee_name);
       const title = `${employee_name}が有給を申請しました`;
-      const body = `${storeShort}・${lastName(employee_name)} ${dateShort}`;
+      const body = `${storeShort}・${lastName(employee_name, leaveEmp?.calendar_display_name, allNamesLeave)} ${dateShort}`;
       for (const code of (notify_codes || [])) {
         const emp = allEmps.find((e: any) => e.employee_code === code);
         if (emp) targets.push({ employee_id: emp.id, title, body, tag: "leave-request", url: "/home" });
@@ -518,10 +538,17 @@ serve(async (req) => {
     if (type === "leave_request_approved") {
       const { employee_id, employee_name, reason, attendance_date, approved_by_name } = payload;
       const dateShort = shortDate(attendance_date);
+      let approverDisplay = lastName(approved_by_name);
+      if (payload.company_id) {
+        const { allEmps: approvedEmps } = await getEmpsAndStores(payload.company_id);
+        const approvedAllNames = approvedEmps.map((e: any) => e.full_name);
+        const approverEmp = approvedEmps.find((e: any) => e.full_name === approved_by_name);
+        approverDisplay = lastName(approved_by_name, approverEmp?.calendar_display_name, approvedAllNames);
+      }
       targets.push({
         employee_id,
         title: "有給申請が承認されました",
-        body: `${dateShort} ${reason}（承認: ${lastName(approved_by_name)}）`,
+        body: `${dateShort} ${reason}（承認: ${approverDisplay}）`,
         tag: "leave-approved",
         url: "/home",
       });
