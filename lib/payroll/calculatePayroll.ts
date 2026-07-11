@@ -79,7 +79,7 @@ function calculateFulltime(
 ): PayrollResult {
   const dailyDetails: DailyCalc[] = [];
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, absenceDays = 0, workDays = 0;
-  let paidLeaveDays = 0;
+  let paidLeaveDays = 0, totalLateEarlyMinutes = 0;
   const warnings: string[] = [];
   const dates = getDateRange(period.start, period.end);
 
@@ -128,6 +128,9 @@ function calculateFulltime(
       // 欠勤は reason に「欠勤」が入っている日のみ。空白日・事由なしの日は欠勤にしない
       daily.isAbsent = true; absenceDays++;
     }
+    if (!isHoliday && record) {
+      totalLateEarlyMinutes += (record.late_minutes || 0) + (record.early_leave_minutes || 0);
+    }
     dailyDetails.push(daily);
   }
 
@@ -161,9 +164,12 @@ function calculateFulltime(
     + emp.fixed_overtime_amount + emp.dependent_allowance;
   const absenceDeduction = absenceDays > 0 ? Math.round((absenceBase / AVERAGE_WORK_DAYS) * absenceDays) : 0;
 
+  const lateEarlyDeduction = totalLateEarlyMinutes > 0 && monthlyStandardHours > 0
+    ? Math.round(absenceBase / monthlyStandardHours / 60 * totalLateEarlyMinutes) : 0;
+
   const grossTotal = baseSalary + positionAllowance + qualificationAllowance
     + commuteAllowance + dependentAllowance + fixedOvertimeAmount
-    + excessOvertimeAmount + adjustmentAmount - absenceDeduction;
+    + excessOvertimeAmount + adjustmentAmount - absenceDeduction - lateEarlyDeduction;
 
   return {
     employee_id: emp.employee_id, employee_code: emp.employee_code,
@@ -179,7 +185,7 @@ function calculateFulltime(
     qualification_allowance: qualificationAllowance, commute_allowance: commuteAllowance,
     dependent_allowance: dependentAllowance, fixed_overtime_amount: fixedOvertimeAmount,
     excess_overtime_amount: excessOvertimeAmount, adjustment_amount: adjustmentAmount,
-    absence_deduction: absenceDeduction, paid_leave_days: paidLeaveDays, paid_leave_amount: 0,
+    absence_deduction: absenceDeduction + lateEarlyDeduction, paid_leave_days: paidLeaveDays, paid_leave_amount: 0,
     gross_total: grossTotal,
     has_warning: warnings.length > 0, warning_details: warnings,
     is_manual_adjusted: false, daily_details: dailyDetails,
@@ -406,7 +412,7 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
 
 async function fetchAttendance(start: string, end: string): Promise<AttendanceRecord[]> {
   const { data, error } = await supabase.from('attendance_daily')
-    .select('id, employee_id, attendance_date, punch_in, punch_out, break_minutes, break_minutes_self_reported, reason, is_holiday, scheduled_hours')
+    .select('id, employee_id, attendance_date, punch_in, punch_out, break_minutes, break_minutes_self_reported, reason, is_holiday, scheduled_hours, late_minutes, early_leave_minutes')
     .eq('company_id', AKASHI_COMPANY_ID).gte('attendance_date', start).lte('attendance_date', end)
     .range(0, 99999);
   if (error) throw new Error(`勤怠データ取得エラー: ${error.message}`);
