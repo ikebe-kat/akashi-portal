@@ -87,8 +87,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
     try {
       setProgress("従業員データ取得中...");
       const { data: empRaw, error: empErr } = await supabase.from("employees")
-        .select("id, employee_code, full_name, employment_type, store_id, holiday_calendar, hire_date")
-        .eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
+        .select("id, employee_code, full_name, employment_type, store_id, holiday_calendar, hire_date, resigned_at")
+        .eq("company_id", employee.company_id).order("employee_code");
       if (empErr) throw empErr;
       if (!empRaw?.length) { setDialogMsg("従業員データがありません"); return; }
       // 対象期間末日より後の入社者は出力対象から外す（雇用区分別の末日で判定）
@@ -96,6 +96,11 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const partRange0 = getDateRange(selYear, selMonth, true);
       const empFiltered = empRaw.filter((e: any) => {
         if (HONBU_CODES.includes(e.employee_code)) return false;
+        if (e.resigned_at) {
+          const rd = String(e.resigned_at).slice(0, 10);
+          const start = e.employment_type === "パート" ? partRange0.from : regRange0.from;
+          if (rd < start) return false;
+        }
         if (!e.hire_date) return true;
         const hd = String(e.hire_date).slice(0, 10);
         const end = e.employment_type === "パート" ? partRange0.to : regRange0.to;

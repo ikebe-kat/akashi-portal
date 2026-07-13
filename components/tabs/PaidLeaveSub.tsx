@@ -182,8 +182,18 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
     storeList.forEach(s => { storeMap[s.id] = s.name; });
 
     /* 従業員 */
-    const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, hire_date, weekly_work_days").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
-    const emps: EmpInfo[] = (ed || []).filter((e: any) => !["D02","D18","D49","D67"].includes(e.employee_code)).map((e: any) => ({
+    const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, hire_date, weekly_work_days, resigned_at").eq("company_id", employee.company_id).order("employee_code");
+    const nowD = new Date();
+    const curYr = nowD.getFullYear(), curMo = nowD.getMonth() + 1;
+    const curKey = curYr * 12 + curMo;
+    const emps: EmpInfo[] = (ed || []).filter((e: any) => {
+      if (["D02","D18","D49","D67"].includes(e.employee_code)) return false;
+      if (e.resigned_at) {
+        const m = String(e.resigned_at).match(/^(\d{4})-(\d{2})/);
+        if (m && curKey > parseInt(m[1], 10) * 12 + parseInt(m[2], 10)) return false;
+      }
+      return true;
+    }).map((e: any) => ({
       id: e.id, code: e.employee_code, name: e.full_name,
       store_name: storeMap[e.store_id] || "", store_id: e.store_id,
       hire_date: e.hire_date, weekly: e.weekly_work_days ?? 5,

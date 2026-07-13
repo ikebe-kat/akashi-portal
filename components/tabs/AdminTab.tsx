@@ -16,7 +16,7 @@ import PayrollSub from "@/components/tabs/PayrollSub";
 import ShiftSub from "@/components/tabs/ShiftSub";
 import EntryApplicationsSub from "@/components/tabs/EntryApplicationsSub";
 
-interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; employment_type: string | null; }
+interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; resigned_at: string | null; employment_type: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; break_minutes_self_reported: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
 
 type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "entry_applications" | "settings" | "payroll" | "shift";
@@ -995,8 +995,8 @@ const MonthlySub = ({ employee }: { employee: any }) => {
       setStores(storeList);
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
-      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
-      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "" })));
+      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, resigned_at, employment_type").eq("company_id", employee.company_id).order("employee_code");
+      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null })));
     })();
   }, [employee?.company_id]);
 
@@ -1014,8 +1014,11 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     let scopedEmps = emps;
     if (perm === "admin") scopedEmps = emps.filter(e => canEditPunch(myCode, e.store_id, e.department));
     if (storeFilter !== "all") scopedEmps = scopedEmps.filter(e => matchStoreFilter(e, storeFilter));
-    // 対象期間末日より後の入社者を除外（雇用区分別の末日: 正社員=regularRange.to, パート=partRange.to）
     scopedEmps = scopedEmps.filter((e: any) => {
+      if (e.resigned_at) {
+        const start = e.employment_type === "パート" ? partRange.from : regularRange.from;
+        if (e.resigned_at < start) return false;
+      }
       if (!e.hire_date) return true;
       const hd = String(e.hire_date).slice(0, 10);
       const end = e.employment_type === "パート" ? partRange.to : regularRange.to;
