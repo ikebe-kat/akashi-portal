@@ -10,6 +10,7 @@ export interface PayrollConfig {
   is_active: boolean;
   requires_punch: boolean;
   hire_date: string | null; // 'YYYY-MM-DD' — 対象期間末日より後ならスキップ判定に使う
+  resigned_at: string | null; // 'YYYY-MM-DD' — 対象期間開始日より前ならスキップ判定に使う
 
   // 正社員用
   base_salary: number;

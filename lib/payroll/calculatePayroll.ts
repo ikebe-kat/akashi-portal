@@ -27,10 +27,11 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
   const fulltimePeriod = getFulltimePeriod(yearMonth);
   const parttimePeriod = getParttimePeriod(yearMonth);
 
-  const employees = await fetchEmployeesWithConfig();
+  const broadEarliestStart = fulltimePeriod.start < parttimePeriod.start ? fulltimePeriod.start : parttimePeriod.start;
+  const employees = await fetchEmployeesWithConfig(broadEarliestStart);
   const holidaysByType = await fetchHolidays(fulltimePeriod.start, fulltimePeriod.end);
 
-  const allStart = fulltimePeriod.start < parttimePeriod.start ? fulltimePeriod.start : parttimePeriod.start;
+  const allStart = broadEarliestStart;
   const allEnd = fulltimePeriod.end > parttimePeriod.end ? fulltimePeriod.end : parttimePeriod.end;
   const attendance = await fetchAttendance(allStart, allEnd);
   const existingPayroll = await fetchExistingPayroll(yearMonth);
@@ -44,8 +45,8 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
     const isParttime = emp.employment_type === 'パート';
     const period = isParttime ? parttimePeriod : fulltimePeriod;
 
-    // 対象期間末日より後の入社者は出力・計算の対象から外す（千野DA039のような未来入社の幽霊レコード防止）
     if (emp.hire_date && emp.hire_date > period.end) continue;
+    if (emp.resigned_at && emp.resigned_at < period.start) continue;
 
     if (!emp.requires_punch) {
       results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
@@ -365,12 +366,12 @@ function createZeroResult(emp: PayrollConfig, yearMonth: string, fp: { start: st
 // ============================================
 interface LeaveRecord { employee_id: string; attendance_date: string; reason: string; }
 
-async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
+async function fetchEmployeesWithConfig(broadEarliestStart: string): Promise<PayrollConfig[]> {
   const { data, error } = await supabase
     .from('employees')
-    .select(`id, employee_code, full_name, employment_type, store_id, is_active, requires_punch, holiday_calendar, hire_date,
+    .select(`id, employee_code, full_name, employment_type, store_id, is_active, requires_punch, holiday_calendar, hire_date, resigned_at,
       employee_payroll_config ( rank, base_salary_override, position_allowance_override, qualifications, dependents_count, commute_distance_km, fixed_overtime_amount, hourly_wage_weekday, hourly_wage_saturday, hourly_wage_sunday )`)
-    .eq('company_id', AKASHI_COMPANY_ID).eq('is_active', true);
+    .eq('company_id', AKASHI_COMPANY_ID).or(`is_active.eq.true,resigned_at.gte.${broadEarliestStart}`);
   if (error) throw new Error(`従業員データ取得エラー: ${error.message}`);
 
   const { data: commuteMaster } = await supabase.from('payroll_commute_master')
@@ -399,6 +400,7 @@ async function fetchEmployeesWithConfig(): Promise<PayrollConfig[]> {
       employment_type: e.employment_type, store_id: e.store_id, is_active: e.is_active,
       requires_punch: e.requires_punch ?? true, holiday_calendar: e.holiday_calendar || null,
       hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null,
+      resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null,
       base_salary: c.base_salary_override || 0, position_allowance: c.position_allowance_override || 0,
       qualification_allowance: calcQual(c.qualifications), commute_allowance: calcCommute(c.commute_distance_km),
       dependent_allowance: calcDep(c.dependents_count), fixed_overtime_amount: c.fixed_overtime_amount || 0,
