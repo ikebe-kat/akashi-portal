@@ -444,7 +444,7 @@ async function fetchExistingPayroll(yearMonth: string) {
   const [y, m] = yearMonth.split('-').map(Number);
   const { data, error } = await supabase.from('payroll_monthly')
     .select('employee_id, adjustment_allowance').eq('company_id', AKASHI_COMPANY_ID).eq('target_year', y).eq('target_month', m);
-  if (error) return [];
+  if (error) throw new Error(`既存給与データ取得エラー: ${error.message}`);
   return data || [];
 }
 
@@ -454,17 +454,19 @@ async function fetchExistingPayroll(yearMonth: string) {
 
 async function fetchExistingPayrollFull(yearMonth: string) {
   const [y, m] = yearMonth.split('-').map(Number);
-  const { data } = await supabase.from('payroll_monthly')
+  const { data, error } = await supabase.from('payroll_monthly')
     .select('id, employee_id, base_salary, position_allowance, qualification_allowance, dependent_allowance, commute_allowance, fixed_overtime, overtime_pay, adjustment_allowance, absence_deduction, paid_leave_amount, hourly_weekday_minutes, hourly_saturday_minutes, hourly_sunday_minutes')
     .eq('company_id', AKASHI_COMPANY_ID).eq('target_year', y).eq('target_month', m);
+  if (error) throw new Error(`既存給与データ(full)取得エラー: ${error.message}`);
   return data || [];
 }
 
 async function fetchChangeLogsForMonth(pmIds: string[]) {
   if (pmIds.length === 0) return [];
-  const { data } = await supabase.from('payroll_change_logs')
+  const { data, error } = await supabase.from('payroll_change_logs')
     .select('employee_id, field_name, changed_by, changed_at, old_value, new_value')
     .in('payroll_monthly_id', pmIds);
+  if (error) throw new Error(`変更ログ取得エラー: ${error.message}`);
   return data || [];
 }
 
@@ -509,9 +511,12 @@ export async function savePayrollResults(results: PayrollResult[], yearMonth: st
     if (clDeleteError) throw new Error(`変更ログ削除エラー: ${clDeleteError.message}`);
   }
 
-  const { error: deleteError } = await supabase.from('payroll_monthly').delete()
-    .eq('company_id', AKASHI_COMPANY_ID).eq('target_year', y).eq('target_month', m);
+  const { data: deleted, error: deleteError } = await supabase.from('payroll_monthly').delete()
+    .eq('company_id', AKASHI_COMPANY_ID).eq('target_year', y).eq('target_month', m).select('id');
   if (deleteError) throw new Error(`既存データ削除エラー: ${deleteError.message}`);
+  if (existing.length > 0 && (!deleted || deleted.length === 0)) {
+    throw new Error(`既存データ${existing.length}件の削除が反映されませんでした（権限設定の可能性）`);
+  }
 
   const rows = results.map(r => {
     const row: any = {
@@ -548,11 +553,11 @@ export async function savePayrollResults(results: PayrollResult[], yearMonth: st
     return row;
   });
 
-  if (rows.length === 0) return;
+  if (rows.length === 0) throw new Error('計算結果が0件です（従業員データまたは計算ロジックの異常）');
   const { data: ins, error: insertError } = await supabase.from('payroll_monthly').insert(rows).select('id, employee_id');
   if (insertError) throw new Error(`給与データ保存エラー: ${insertError.message}`);
   if (!ins || ins.length === 0) throw new Error('給与データを保存できませんでした（権限設定の可能性）');
-  if (ins.length !== rows.length) console.warn(`給与データ保存: ${ins.length}/${rows.length} 行のみ反映（残りはRLS等で除外）`);
+  if (ins.length !== rows.length) throw new Error(`給与データ保存: ${rows.length}件中${ins.length}件のみ反映（${rows.length - ins.length}件が未保存、権限設定の可能性）`);
 
   if (mode === 'preserve' && savedChangeLogs.length > 0) {
     const empToPmId = new Map(ins.map((r: any) => [r.employee_id, r.id]));
@@ -572,8 +577,9 @@ export async function savePayrollResults(results: PayrollResult[], yearMonth: st
       })
       .filter(Boolean);
     if (newLogs.length > 0) {
-      const { error: clInsertError } = await supabase.from('payroll_change_logs').insert(newLogs);
+      const { data: clIns, error: clInsertError } = await supabase.from('payroll_change_logs').insert(newLogs).select('id');
       if (clInsertError) throw new Error(`変更ログ再保存エラー: ${clInsertError.message}`);
+      if (!clIns || clIns.length !== newLogs.length) throw new Error(`変更ログ再保存: ${newLogs.length}件中${clIns?.length ?? 0}件のみ反映`);
     }
   }
 }
