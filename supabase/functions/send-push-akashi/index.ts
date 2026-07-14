@@ -288,6 +288,18 @@ serve(async (req) => {
 
       const dateShort = shortDate(target_date);
 
+      // 休職データ（attendance除外）
+      const { data: lvData } = await sb.from("employee_leaves")
+        .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
+        .in("employee_id", empIds)
+        .lte("leave_start_date", target_date)
+        .or(`leave_end_date.is.null,leave_end_date.gt.${target_date}`);
+      const onLeaveSet = new Set<string>();
+      for (const lv of (lvData || [])) {
+        const excls = ((lv as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target);
+        if (excls.includes("attendance")) onLeaveSet.add(lv.employee_id);
+      }
+
       // 出勤すべき日から除外する「休み事由」
       const isLeaveReason = (rs: string | null) =>
         !!rs && (rs.includes("有給") || rs.includes("選択休") || rs.includes("代休") ||
@@ -299,6 +311,7 @@ serve(async (req) => {
         if (emp.employee_code?.startsWith("test")) continue; // テスト社員除外
         if (emp.employee_code === "D02") continue;            // 代表除外
         if (!emp.requires_punch) continue;                    // 打刻不要者（本部役員等）除外
+        if (onLeaveSet.has(emp.id)) continue;                 // 休職者除外
 
         const att = attMap[emp.id];
         const hasIn = !!att?.punch_in;
