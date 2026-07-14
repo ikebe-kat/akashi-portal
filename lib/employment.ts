@@ -45,3 +45,17 @@ export function checkEmploymentInPeriod(
   }
   return 'active';
 }
+
+export function isDateOnLeave(
+  dateStr: string,
+  leaves: LeaveRecord[],
+  target?: ExclusionTarget,
+): boolean {
+  for (const lv of leaves) {
+    if (target && !lv.exclusions.includes(target)) continue;
+    if (lv.leave_start_date > dateStr) continue;
+    if (lv.leave_end_date && lv.leave_end_date <= dateStr) continue;
+    return true;
+  }
+  return false;
+}

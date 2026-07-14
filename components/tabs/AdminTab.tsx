@@ -15,7 +15,7 @@ import LeaveApprovalSub from "@/components/tabs/LeaveApprovalSub";
 import PayrollSub from "@/components/tabs/PayrollSub";
 import ShiftSub from "@/components/tabs/ShiftSub";
 import EntryApplicationsSub from "@/components/tabs/EntryApplicationsSub";
-import { checkEmploymentInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
+import { checkEmploymentInPeriod, isDateOnLeave, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
 
 interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; resigned_at: string | null; employment_type: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; break_minutes_self_reported: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
@@ -467,21 +467,28 @@ const IndividualSub = ({ employee }: { employee: any }) => {
     }
 
     const { data } = await supabase.from("attendance_daily").select("*").eq("employee_id", empId).gte("attendance_date", startDate).lte("attendance_date", endDate).order("attendance_date");
+    const { data: lvRaw } = await supabase.from("employee_leaves")
+      .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
+      .eq("employee_id", empId);
+    const empLeaves: EmploymentLeaveRecord[] = (lvRaw || []).map((r: any) => ({ leave_start_date: r.leave_start_date, leave_end_date: r.leave_end_date, exclusions: (r.employee_leave_exclusions || []).map((x: any) => x.exclusion_target) }));
     const dataMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { dataMap[r.attendance_date] = r; });
     const allDays: AttRow[] = [];
     for (const rd of range.days) {
       const dateStr = rd.dateStr;
       const isHoliday = holidaySet.has(dateStr);
+      const onLeave = isDateOnLeave(dateStr, empLeaves, "attendance");
       if (dataMap[dateStr]) {
         const existing = dataMap[dateStr];
-        if (existing.is_holiday == null && isHoliday) {
+        if (onLeave) {
+          allDays.push({ ...existing, reason: "休職", is_holiday: existing.is_holiday == null && isHoliday ? true : existing.is_holiday });
+        } else if (existing.is_holiday == null && isHoliday) {
           allDays.push({ ...existing, is_holiday: true });
         } else {
           allDays.push(existing);
         }
       }
-      else { allDays.push({ id: `empty-${dateStr}`, attendance_date: dateStr, day_of_week: null, punch_in: null, punch_out: null, reason: null, break_minutes: null, break_minutes_self_reported: null, late_minutes: null, early_leave_minutes: null, actual_hours: null, scheduled_hours: null, overtime_hours: null, over_under: null, employee_note: null, admin_memo: null, is_holiday: isHoliday || null, work_pattern_code: null }); }
+      else { allDays.push({ id: `empty-${dateStr}`, attendance_date: dateStr, day_of_week: null, punch_in: null, punch_out: null, reason: onLeave ? "休職" : null, break_minutes: null, break_minutes_self_reported: null, late_minutes: null, early_leave_minutes: null, actual_hours: null, scheduled_hours: null, overtime_hours: null, over_under: null, employee_note: null, admin_memo: null, is_holiday: isHoliday || null, work_pattern_code: null }); }
     }
     setRows(allDays);
     setLoading(false);
@@ -812,17 +819,29 @@ const DailySub = ({ employee }: { employee: any }) => {
     }
 
     const { data } = await supabase.from("attendance_daily").select("*").eq("attendance_date", selectedDate).in("employee_id", empIds).order("employee_id");
+    const { data: lvRaw } = await supabase.from("employee_leaves")
+      .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
+      .in("employee_id", empIds);
+    const dailyLeavesMap = new Map<string, EmploymentLeaveRecord[]>();
+    for (const r of (lvRaw || [])) {
+      const rec: EmploymentLeaveRecord = { leave_start_date: r.leave_start_date, leave_end_date: r.leave_end_date, exclusions: ((r as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
+      const arr = dailyLeavesMap.get(r.employee_id) || [];
+      arr.push(rec);
+      dailyLeavesMap.set(r.employee_id, arr);
+    }
     const attMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { attMap[r.employee_id] = r; });
     const allRows: DailyRow[] = scopedEmps.map(emp => {
       const isHoliday = emp.holiday_calendar ? (holidayByCalType[emp.holiday_calendar] || false) : false;
+      const onLeave = isDateOnLeave(selectedDate, dailyLeavesMap.get(emp.id) || [], "attendance");
       const att = attMap[emp.id];
       if (att) {
         const row: DailyRow = { ...att, emp_code: emp.code, emp_name: emp.name, store_name: emp.store_name, employment_type: emp.employment_type };
+        if (onLeave) row.reason = "休職";
         if (row.is_holiday == null && isHoliday) row.is_holiday = true;
         return row;
       }
-      return { id: `empty-${emp.id}`, attendance_date: selectedDate, day_of_week: null, punch_in: null, punch_out: null, reason: null, break_minutes: null, break_minutes_self_reported: null, late_minutes: null, early_leave_minutes: null, actual_hours: null, scheduled_hours: null, overtime_hours: null, over_under: null, employee_note: null, admin_memo: null, is_holiday: isHoliday || null, work_pattern_code: null, emp_code: emp.code, emp_name: emp.name, store_name: emp.store_name, employment_type: emp.employment_type };
+      return { id: `empty-${emp.id}`, attendance_date: selectedDate, day_of_week: null, punch_in: null, punch_out: null, reason: onLeave ? "休職" : null, break_minutes: null, break_minutes_self_reported: null, late_minutes: null, early_leave_minutes: null, actual_hours: null, scheduled_hours: null, overtime_hours: null, over_under: null, employee_note: null, admin_memo: null, is_holiday: isHoliday || null, work_pattern_code: null, emp_code: emp.code, emp_name: emp.name, store_name: emp.store_name, employment_type: emp.employment_type };
     });
     setRows(allRows);
     setLoading(false);

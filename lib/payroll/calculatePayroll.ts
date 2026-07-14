@@ -3,7 +3,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { AKASHI_COMPANY_ID } from '@/lib/constants';
-import { checkEmploymentInPeriod, type LeaveRecord as EmploymentLeaveRecord } from '@/lib/employment';
+import { checkEmploymentInPeriod, isDateOnLeave, type LeaveRecord as EmploymentLeaveRecord } from '@/lib/employment';
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -65,11 +65,11 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
     const adjustmentAmount = mode === 'full' ? 0 : (existingAdj?.adjustment_allowance ?? 0);
 
     if (isParttime) {
-      results.push(calculateParttime(emp, period, empAttendance, empLeaves, yearMonth, adjustmentAmount));
+      results.push(calculateParttime(emp, period, empAttendance, empLeaves, yearMonth, adjustmentAmount, empLeaveRecords));
     } else {
       const empHolidays = holidaysByType.get(emp.holiday_calendar || '') || new Set<string>();
       const monthlyStandardHours = calculateMonthlyStandardHours(empHolidays, fulltimePeriod);
-      results.push(calculateFulltime(emp, period, empAttendance, empLeaves, empHolidays, yearMonth, monthlyStandardHours, adjustmentAmount));
+      results.push(calculateFulltime(emp, period, empAttendance, empLeaves, empHolidays, yearMonth, monthlyStandardHours, adjustmentAmount, empLeaveRecords));
     }
   }
 
@@ -84,6 +84,7 @@ function calculateFulltime(
   attendance: AttendanceRecord[], leaves: LeaveRecord[],
   holidays: Set<string>, yearMonth: string,
   monthlyStandardHours: number, adjustmentAmount: number,
+  employmentLeaves: EmploymentLeaveRecord[],
 ): PayrollResult {
   const dailyDetails: DailyCalc[] = [];
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, absenceDays = 0, workDays = 0;
@@ -97,6 +98,11 @@ function calculateFulltime(
     const record = attendance.find(a => a.attendance_date === dateStr);
     const leave = leaves.find(l => l.attendance_date === dateStr);
     const hasLeave = !!leave;
+
+    if (isDateOnLeave(dateStr, employmentLeaves, 'attendance')) {
+      dailyDetails.push({ date: dateStr, dayOfWeek, clockIn: null, clockOut: null, workMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, isHoliday, isAbsent: false, hasLeave: false, leaveType: '休職', hasWarning: false, warningMessage: null, appliedHourlyRate: null });
+      continue;
+    }
 
     const daily: DailyCalc = {
       date: dateStr, dayOfWeek,
@@ -208,6 +214,7 @@ function calculateParttime(
   emp: PayrollConfig, period: { start: string; end: string },
   attendance: AttendanceRecord[], leaves: LeaveRecord[],
   yearMonth: string, adjustmentAmount: number,
+  employmentLeaves: EmploymentLeaveRecord[],
 ): PayrollResult {
   const dailyDetails: DailyCalc[] = [];
   let weekdayMinutes = 0, saturdayMinutes = 0, sundayMinutes = 0;
@@ -223,6 +230,11 @@ function calculateParttime(
     const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
     const record = attendance.find(a => a.attendance_date === dateStr);
     const leave = leaves.find(l => l.attendance_date === dateStr);
+
+    if (isDateOnLeave(dateStr, employmentLeaves, 'attendance')) {
+      dailyDetails.push({ date: dateStr, dayOfWeek, clockIn: null, clockOut: null, workMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, isHoliday: false, isAbsent: false, hasLeave: false, leaveType: '休職', hasWarning: false, warningMessage: null, appliedHourlyRate: null });
+      continue;
+    }
 
     const daily: DailyCalc = {
       date: dateStr, dayOfWeek,

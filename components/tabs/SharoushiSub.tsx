@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
-import { checkEmploymentInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
+import { checkEmploymentInPeriod, isDateOnLeave, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
 
 const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 
@@ -172,10 +172,14 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           const ds = dayInfo.dateStr;
           const [, dm, dd] = ds.split("-");
           const dw = DOW[dayInfo.dow];
-          const a = ma.get(ds);
+          const aRaw = ma.get(ds);
+          const onLeaveDay = isDateOnLeave(ds, leavesMap.get(emp.id) || [], "attendance");
+          const a = aRaw && onLeaveDay ? { ...aRaw, reason: "休職" as string | null } : aRaw;
           const isHol = empHols.has(ds);
           let rs = "", pi = "", po = "", lt = "", et = "", ot = "", sc = "", ct = "", ou = "";
-          if (a) {
+          if (onLeaveDay) {
+            rs = "休職";
+          } else if (a) {
             rs = mapReason(a.reason);
             pi = a.punch_in_raw ? tzHHMM(a.punch_in_raw) : fmTimeStr(a.punch_in);
             po = a.punch_out_raw ? tzHHMM(a.punch_out_raw) : fmTimeStr(a.punch_out);
@@ -247,6 +251,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           const bk = DOW_LABELS.map(() => ({ w: 0, sm: 0, y: 0, sh: 0, k: 0, oth: 0, lc: 0, lm: 0, ec: 0, em: 0, om: 0, um: 0 }));
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
+            if (isDateOnLeave(dateKey, leavesMap.get(ip.emp.id) || [], "attendance")) continue;
             const dow = new Date(dateKey + "T00:00:00").getDay();
             const b = bk[dow === 0 ? 2 : dow === 6 ? 1 : 0];
             if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) b.w++;
@@ -277,6 +282,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
+            if (isDateOnLeave(dateKey, leavesMap.get(ip.emp.id) || [], "attendance")) continue;
             if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
             if (a.punch_in && a.punch_out) {
               const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
@@ -301,6 +307,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
+            if (isDateOnLeave(dateKey, leavesMap.get(ip.emp.id) || [], "attendance")) continue;
             if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
             if (a.actual_hours) { sm += Math.round(a.actual_hours * 60); }
             if (a.reason) {
