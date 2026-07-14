@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
-import { isTargetInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
+import { checkEmploymentInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
 
 const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 
@@ -109,7 +109,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         if (HONBU_CODES.includes(e.employee_code)) return false;
         const isParttime = e.employment_type === "パート";
         const period = { start: isParttime ? partRange0.from : regRange0.from, end: isParttime ? partRange0.to : regRange0.to };
-        return isTargetInPeriod({ resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null }, period.start, period.end, "insurance", leavesMap.get(e.id) || []);
+        return checkEmploymentInPeriod({ resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null }, period.start, period.end, "insurance", leavesMap.get(e.id) || []) !== "not_employed";
       });
 
       const { data: stRaw } = await supabase.from("stores").select("id, store_code, store_name").eq("company_id", employee.company_id);

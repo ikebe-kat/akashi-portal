@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, GRANT_MONTHS, DAYS_FULL, DAYS_PART, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
-import { isTargetInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
+import { checkEmploymentInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
 
 /* ── 労基法テーブル定数は lib/constants.ts からimport済み ── */
 
@@ -201,7 +201,7 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
     }
     const emps: EmpInfo[] = (ed || []).filter((e: any) => {
       if (["D02","D18","D49","D67"].includes(e.employee_code)) return false;
-      return isTargetInPeriod({ resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, hire_date: null }, curMonthStart, curMonthEnd, "paid_leave", leavesMap.get(e.id) || []);
+      return checkEmploymentInPeriod({ resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, hire_date: null }, curMonthStart, curMonthEnd, "paid_leave", leavesMap.get(e.id) || []) !== "not_employed";
     }).map((e: any) => ({
       id: e.id, code: e.employee_code, name: e.full_name,
       store_name: storeMap[e.store_id] || "", store_id: e.store_id,

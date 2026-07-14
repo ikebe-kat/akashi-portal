@@ -3,7 +3,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { AKASHI_COMPANY_ID } from '@/lib/constants';
-import { isTargetInPeriod, type LeaveRecord as EmploymentLeaveRecord } from '@/lib/employment';
+import { checkEmploymentInPeriod, type LeaveRecord as EmploymentLeaveRecord } from '@/lib/employment';
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -48,7 +48,12 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
     const period = isParttime ? parttimePeriod : fulltimePeriod;
     const empLeaveRecords = employeeLeavesMap.get(emp.employee_id) || [];
 
-    if (!isTargetInPeriod(emp, period.start, period.end, 'payroll', empLeaveRecords)) continue;
+    const empStatus = checkEmploymentInPeriod(emp, period.start, period.end, 'payroll', empLeaveRecords);
+    if (empStatus === 'not_employed') continue;
+    if (empStatus === 'excluded') {
+      results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
+      continue;
+    }
 
     if (!emp.requires_punch) {
       results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
