@@ -44,6 +44,7 @@ next-env.d.ts
 
 supabase/*
 !supabase/migrations/
+!supabase/functions/
 
 # payroll slips (個人の給与情報を含むためGit管理外)
 payroll-slips/
