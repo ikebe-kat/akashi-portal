@@ -357,10 +357,141 @@ const EmpDocsPanel = ({ empId, companyId, uploaderName, onMsg }: { empId: string
 };
 
 /* ══════════════════════════════════════ */
+/* ── 休職管理パネル ── */
+/* ══════════════════════════════════════ */
+const LEAVE_TYPES = ["産休", "育休", "傷病", "介護休職", "その他"] as const;
+const EXCLUSION_OPTIONS: { key: string; label: string }[] = [
+  { key: "payroll", label: "給与計算から外す" },
+  { key: "insurance", label: "社会保険から外す" },
+  { key: "paid_leave", label: "有給管理から外す" },
+  { key: "attendance", label: "勤怠表示から外す（カレンダー非表示・打刻漏れ対象外）" },
+];
+interface LeaveRow { id: string; leave_start_date: string; leave_end_date: string | null; leave_type: string; exclusions: string[]; }
+
+const LeavePanel = ({ empId, onMsg }: { empId: string; onMsg: (m: string) => void }) => {
+  const [leaves, setLeaves] = useState<LeaveRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editLeave, setEditLeave] = useState<LeaveRow | null>(null);
+  const [form, setForm] = useState<Record<string, any>>({});
+  const [saving, setSaving] = useState(false);
+
+  const fetchLeaves = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase.from("employee_leaves")
+      .select("id, leave_start_date, leave_end_date, leave_type, employee_leave_exclusions ( exclusion_target )")
+      .eq("employee_id", empId).order("leave_start_date", { ascending: false });
+    setLeaves((data || []).map((r: any) => ({ id: r.id, leave_start_date: r.leave_start_date, leave_end_date: r.leave_end_date, leave_type: r.leave_type, exclusions: (r.employee_leave_exclusions || []).map((x: any) => x.exclusion_target) })));
+    setLoading(false);
+  }, [empId]);
+  useEffect(() => { fetchLeaves(); }, [fetchLeaves]);
+
+  const openNew = () => { setEditLeave(null); setForm({ leave_start_date: "", leave_end_date: "", leave_type: "傷病", exclusions: ["payroll", "insurance", "paid_leave", "attendance"] }); setShowForm(true); };
+  const openEdit = (lv: LeaveRow) => { setEditLeave(lv); setForm({ leave_start_date: lv.leave_start_date, leave_end_date: lv.leave_end_date || "", leave_type: lv.leave_type, exclusions: [...lv.exclusions] }); setShowForm(true); };
+  const set = (k: string, v: any) => setForm(prev => ({ ...prev, [k]: v }));
+  const toggleExclusion = (key: string) => {
+    setForm(prev => {
+      const excls: string[] = prev.exclusions || [];
+      return { ...prev, exclusions: excls.includes(key) ? excls.filter((e: string) => e !== key) : [...excls, key] };
+    });
+  };
+
+  const handleSave = async () => {
+    if (!form.leave_start_date) { onMsg("休職開始日を入力してください"); return; }
+    setSaving(true);
+    const leavePayload = { employee_id: empId, leave_start_date: form.leave_start_date, leave_end_date: form.leave_end_date || null, leave_type: form.leave_type, updated_at: new Date().toISOString() };
+    let leaveId: string | null = editLeave?.id || null;
+    if (editLeave) {
+      const { data: upd, error } = await supabase.from("employee_leaves").update(leavePayload).eq("id", editLeave.id).select("id");
+      if (error) { setSaving(false); onMsg("更新失敗: " + error.message); return; }
+      if (!upd || upd.length === 0) { setSaving(false); onMsg("更新が保存できませんでした（権限設定の可能性）"); return; }
+      await supabase.from("employee_leave_exclusions").delete().eq("leave_id", editLeave.id);
+    } else {
+      const { data: ins, error } = await supabase.from("employee_leaves").insert(leavePayload).select("id").maybeSingle();
+      if (error) { setSaving(false); onMsg("登録失敗: " + error.message); return; }
+      if (!ins?.id) { setSaving(false); onMsg("登録が保存できませんでした（権限設定の可能性）"); return; }
+      leaveId = ins.id;
+    }
+    if (leaveId && form.exclusions.length > 0) {
+      const rows = form.exclusions.map((t: string) => ({ leave_id: leaveId, exclusion_target: t }));
+      const { error: exErr } = await supabase.from("employee_leave_exclusions").insert(rows);
+      if (exErr) { setSaving(false); onMsg("除外面の保存に失敗: " + exErr.message); return; }
+    }
+    setSaving(false); setShowForm(false); fetchLeaves(); onMsg(editLeave ? "更新しました" : "追加しました");
+  };
+
+  const handleDelete = async (lv: LeaveRow) => {
+    if (!confirm(`${lv.leave_start_date}〜の休職レコードを削除しますか？`)) return;
+    const { error } = await supabase.from("employee_leaves").delete().eq("id", lv.id);
+    if (error) { onMsg("削除失敗: " + error.message); return; }
+    fetchLeaves(); onMsg("削除しました");
+  };
+
+  const fmtDate = (d: string) => { const [y, m, dd] = d.split("-"); return `${y}/${m}/${dd}`; };
+  const exclusionLabel = (key: string) => EXCLUSION_OPTIONS.find(o => o.key === key)?.label.replace(/から外す.*/, "") || key;
+
+  if (loading) return <div style={{ padding: 20, textAlign: "center", color: T.textMuted, fontSize: 13 }}>読み込み中...</div>;
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>休職履歴（{leaves.length}件）</div>
+        <button onClick={openNew} style={{ padding: "6px 14px", borderRadius: 6, border: "none", backgroundColor: T.primary, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>＋ 追加</button>
+      </div>
+      {leaves.length === 0 && !showForm && <div style={{ textAlign: "center", padding: "30px 20px", color: T.textMuted, fontSize: 13 }}>休職の登録はありません</div>}
+      {leaves.map(lv => (
+        <div key={lv.id} style={{ border: `1px solid ${T.border}`, borderRadius: 3, padding: 14, marginBottom: 8, backgroundColor: "#fff" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div>
+              <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{fmtDate(lv.leave_start_date)}</span>
+              <span style={{ fontSize: 13, color: T.textSec }}> 〜 {lv.leave_end_date ? fmtDate(lv.leave_end_date) : "復帰未定"}</span>
+            </div>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button onClick={() => openEdit(lv)} style={{ padding: "4px 10px", borderRadius: 3, border: "none", backgroundColor: T.primary, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>編集</button>
+              <button onClick={() => handleDelete(lv)} style={{ padding: "4px 8px", borderRadius: 3, border: `1px solid ${T.danger}`, backgroundColor: "#fff", color: T.danger, fontSize: 11, cursor: "pointer" }}>削除</button>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: T.textSec }}>
+            <span style={{ padding: "1px 6px", borderRadius: 3, backgroundColor: T.primary + "12", color: T.primary, fontSize: 11, fontWeight: 600, marginRight: 8 }}>{lv.leave_type}</span>
+            {lv.exclusions.length > 0 ? lv.exclusions.map(e => <span key={e} style={{ padding: "1px 5px", borderRadius: 3, backgroundColor: T.bg, color: T.textSec, fontSize: 10, marginRight: 4 }}>{exclusionLabel(e)}</span>) : <span style={{ fontSize: 11, color: T.textMuted }}>除外面なし</span>}
+          </div>
+        </div>
+      ))}
+      {showForm && (
+        <div style={{ border: `1px solid ${T.primary}40`, borderRadius: 3, padding: 16, marginTop: 8, backgroundColor: "#FAFCFF" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>{editLeave ? "休職を編集" : "休職を追加"}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+            <Field label="休職開始日 *"><input type="date" value={form.leave_start_date} onChange={e => set("leave_start_date", e.target.value)} style={inputStyle} /></Field>
+            <Field label="復帰日（空欄=復帰未定）"><input type="date" value={form.leave_end_date} onChange={e => set("leave_end_date", e.target.value)} style={inputStyle} /></Field>
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <Field label="種別"><select value={form.leave_type} onChange={e => set("leave_type", e.target.value)} style={selectStyle}>{LEAVE_TYPES.map(v => <option key={v} value={v}>{v}</option>)}</select></Field>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelStyle}>この休職で除外する機能</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {EXCLUSION_OPTIONS.map(opt => (
+                <label key={opt.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, cursor: "pointer" }}>
+                  <input type="checkbox" checked={(form.exclusions || []).includes(opt.key)} onChange={() => toggleExclusion(opt.key)} style={{ width: 16, height: 16, accentColor: T.primary }} />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", borderRadius: 3, border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 12, cursor: "pointer" }}>キャンセル</button>
+            <button onClick={handleSave} disabled={saving} style={{ padding: "8px 16px", borderRadius: 3, border: "none", backgroundColor: T.primary, color: "#fff", fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "保存中..." : editLeave ? "更新" : "追加"}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ══════════════════════════════════════ */
 /* ── 従業員詳細モーダル ── */
 /* ══════════════════════════════════════ */
 const EmpDetailModal = ({ emp, companyId, uploaderName, onClose, onMsg }: { emp: EmpRow; companyId: string; uploaderName: string; onClose: () => void; onMsg: (m: string) => void }) => {
-  const [tab, setTab] = useState<"dependents" | "documents" | "nyusha">("dependents");
+  const [tab, setTab] = useState<"dependents" | "documents" | "nyusha" | "leaves">("dependents");
   return (
     <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1100, animation: "fadeIn 0.15s ease" }} onClick={onClose}>
       <div style={{ backgroundColor: "#fff", borderRadius: "12px 12px 0 0", padding: "20px", width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto", animation: "slideUp 0.3s ease" }} onClick={e => e.stopPropagation()}>
@@ -368,13 +499,14 @@ const EmpDetailModal = ({ emp, companyId, uploaderName, onClose, onMsg }: { emp:
         <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>{emp.full_name}（{emp.employee_code}）</div>
         <div style={{ fontSize: 12, color: T.textSec, marginBottom: 16 }}>{storeShort(emp.store_name || null)} ・ {emp.department || "—"}</div>
         <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: `1px solid ${T.border}` }}>
-          {(["dependents", "documents", "nyusha"] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 16px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: tab === t ? 700 : 400, color: tab === t ? T.primary : T.textSec, borderBottom: tab === t ? `3px solid ${T.primary}` : "3px solid transparent" }}>{t === "dependents" ? "扶養家族" : t === "documents" ? "個人書類" : "入社シート"}</button>
+          {(["dependents", "documents", "nyusha", "leaves"] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 16px", border: "none", backgroundColor: "transparent", cursor: "pointer", fontSize: 13, fontWeight: tab === t ? 700 : 400, color: tab === t ? T.primary : T.textSec, borderBottom: tab === t ? `3px solid ${T.primary}` : "3px solid transparent" }}>{t === "dependents" ? "扶養家族" : t === "documents" ? "個人書類" : t === "nyusha" ? "入社シート" : "休職管理"}</button>
           ))}
         </div>
         {tab === "dependents" && <DependentsPanel empId={emp.id} companyId={companyId} onMsg={onMsg} />}
         {tab === "documents" && <EmpDocsPanel empId={emp.id} companyId={companyId} uploaderName={uploaderName} onMsg={onMsg} />}
         {tab === "nyusha" && <NyushaSheetExport empId={emp.id} empCode={emp.employee_code} empName={emp.full_name} companyId={companyId} />}
+        {tab === "leaves" && <LeavePanel empId={emp.id} onMsg={onMsg} />}
       </div>
     </div>
   );
