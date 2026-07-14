@@ -15,6 +15,7 @@ import LeaveApprovalSub from "@/components/tabs/LeaveApprovalSub";
 import PayrollSub from "@/components/tabs/PayrollSub";
 import ShiftSub from "@/components/tabs/ShiftSub";
 import EntryApplicationsSub from "@/components/tabs/EntryApplicationsSub";
+import { isTargetInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
 
 interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; resigned_at: string | null; employment_type: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; break_minutes_self_reported: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
@@ -1014,15 +1015,21 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     let scopedEmps = emps;
     if (perm === "admin") scopedEmps = emps.filter(e => canEditPunch(myCode, e.store_id, e.department));
     if (storeFilter !== "all") scopedEmps = scopedEmps.filter(e => matchStoreFilter(e, storeFilter));
+    const scopedIds = scopedEmps.map(e => e.id);
+    const { data: leavesRaw } = await supabase.from("employee_leaves")
+      .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
+      .in("employee_id", scopedIds);
+    const leavesMap = new Map<string, EmploymentLeaveRecord[]>();
+    for (const row of (leavesRaw || [])) {
+      const rec: EmploymentLeaveRecord = { leave_start_date: row.leave_start_date, leave_end_date: row.leave_end_date, exclusions: ((row as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
+      const arr = leavesMap.get(row.employee_id) || [];
+      arr.push(rec);
+      leavesMap.set(row.employee_id, arr);
+    }
     scopedEmps = scopedEmps.filter((e: any) => {
-      if (e.resigned_at) {
-        const start = e.employment_type === "パート" ? partRange.from : regularRange.from;
-        if (e.resigned_at < start) return false;
-      }
-      if (!e.hire_date) return true;
-      const hd = String(e.hire_date).slice(0, 10);
-      const end = e.employment_type === "パート" ? partRange.to : regularRange.to;
-      return hd <= end;
+      const isParttime = e.employment_type === "パート";
+      const period = { start: isParttime ? partRange.from : regularRange.from, end: isParttime ? partRange.to : regularRange.to };
+      return isTargetInPeriod({ resigned_at: e.resigned_at, hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null }, period.start, period.end, "payroll", leavesMap.get(e.id) || []);
     });
 
     const empIds = scopedEmps.map(e => e.id);

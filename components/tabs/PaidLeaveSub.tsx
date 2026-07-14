@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, GRANT_MONTHS, DAYS_FULL, DAYS_PART, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
+import { isTargetInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
 
 /* ── 労基法テーブル定数は lib/constants.ts からimport済み ── */
 
@@ -185,14 +186,22 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
     const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, hire_date, weekly_work_days, resigned_at").eq("company_id", employee.company_id).order("employee_code");
     const nowD = new Date();
     const curYr = nowD.getFullYear(), curMo = nowD.getMonth() + 1;
-    const curKey = curYr * 12 + curMo;
+    const curMonthStart = `${curYr}-${String(curMo).padStart(2, "0")}-01`;
+    const curMonthEnd = new Date(curYr, curMo, 0).toISOString().slice(0, 10);
+    const edIds = (ed || []).map((e: any) => e.id);
+    const { data: leavesRaw } = await supabase.from("employee_leaves")
+      .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
+      .in("employee_id", edIds);
+    const leavesMap = new Map<string, EmploymentLeaveRecord[]>();
+    for (const row of (leavesRaw || [])) {
+      const rec: EmploymentLeaveRecord = { leave_start_date: row.leave_start_date, leave_end_date: row.leave_end_date, exclusions: ((row as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
+      const arr = leavesMap.get(row.employee_id) || [];
+      arr.push(rec);
+      leavesMap.set(row.employee_id, arr);
+    }
     const emps: EmpInfo[] = (ed || []).filter((e: any) => {
       if (["D02","D18","D49","D67"].includes(e.employee_code)) return false;
-      if (e.resigned_at) {
-        const m = String(e.resigned_at).match(/^(\d{4})-(\d{2})/);
-        if (m && curKey > parseInt(m[1], 10) * 12 + parseInt(m[2], 10)) return false;
-      }
-      return true;
+      return isTargetInPeriod({ resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, hire_date: null }, curMonthStart, curMonthEnd, "paid_leave", leavesMap.get(e.id) || []);
     }).map((e: any) => ({
       id: e.id, code: e.employee_code, name: e.full_name,
       store_name: storeMap[e.store_id] || "", store_id: e.store_id,

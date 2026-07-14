@@ -3,6 +3,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { AKASHI_COMPANY_ID } from '@/lib/constants';
+import { isTargetInPeriod, type LeaveRecord as EmploymentLeaveRecord } from '@/lib/employment';
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -36,6 +37,7 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
   const attendance = await fetchAttendance(allStart, allEnd);
   const existingPayroll = await fetchExistingPayroll(yearMonth);
   const leaveRequests = await fetchLeaveRequests(allStart, allEnd);
+  const employeeLeavesMap = await fetchEmployeeLeaves(employees.map(e => e.employee_id));
 
   const results: PayrollResult[] = [];
 
@@ -44,9 +46,9 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
 
     const isParttime = emp.employment_type === 'パート';
     const period = isParttime ? parttimePeriod : fulltimePeriod;
+    const empLeaveRecords = employeeLeavesMap.get(emp.employee_id) || [];
 
-    if (emp.hire_date && emp.hire_date > period.end) continue;
-    if (emp.resigned_at && emp.resigned_at < period.start) continue;
+    if (!isTargetInPeriod(emp, period.start, period.end, 'payroll', empLeaveRecords)) continue;
 
     if (!emp.requires_punch) {
       results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
@@ -440,6 +442,26 @@ async function fetchLeaveRequests(start: string, end: string): Promise<LeaveReco
     .eq('company_id', AKASHI_COMPANY_ID).eq('status', '承認').gte('attendance_date', start).lte('attendance_date', end);
   if (error) throw new Error(`有給データ取得エラー: ${error.message}`);
   return data || [];
+}
+
+async function fetchEmployeeLeaves(employeeIds: string[]): Promise<Map<string, EmploymentLeaveRecord[]>> {
+  const map = new Map<string, EmploymentLeaveRecord[]>();
+  if (employeeIds.length === 0) return map;
+  const { data } = await supabase
+    .from('employee_leaves')
+    .select('employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )')
+    .in('employee_id', employeeIds);
+  for (const row of (data || [])) {
+    const rec: EmploymentLeaveRecord = {
+      leave_start_date: row.leave_start_date,
+      leave_end_date: row.leave_end_date,
+      exclusions: ((row as any).employee_leave_exclusions || []).map((e: any) => e.exclusion_target),
+    };
+    const arr = map.get(row.employee_id) || [];
+    arr.push(rec);
+    map.set(row.employee_id, arr);
+  }
+  return map;
 }
 
 async function fetchExistingPayroll(yearMonth: string) {

@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
+import { isTargetInPeriod, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
 
 const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 
@@ -91,20 +92,24 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         .eq("company_id", employee.company_id).order("employee_code");
       if (empErr) throw empErr;
       if (!empRaw?.length) { setDialogMsg("従業員データがありません"); return; }
-      // 対象期間末日より後の入社者は出力対象から外す（雇用区分別の末日で判定）
       const regRange0 = getDateRange(selYear, selMonth, false);
       const partRange0 = getDateRange(selYear, selMonth, true);
+      const empIds = empRaw.map((e: any) => e.id);
+      const { data: leavesRaw } = await supabase.from("employee_leaves")
+        .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
+        .in("employee_id", empIds);
+      const leavesMap = new Map<string, EmploymentLeaveRecord[]>();
+      for (const row of (leavesRaw || [])) {
+        const rec: EmploymentLeaveRecord = { leave_start_date: row.leave_start_date, leave_end_date: row.leave_end_date, exclusions: ((row as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
+        const arr = leavesMap.get(row.employee_id) || [];
+        arr.push(rec);
+        leavesMap.set(row.employee_id, arr);
+      }
       const empFiltered = empRaw.filter((e: any) => {
         if (HONBU_CODES.includes(e.employee_code)) return false;
-        if (e.resigned_at) {
-          const rd = String(e.resigned_at).slice(0, 10);
-          const start = e.employment_type === "パート" ? partRange0.from : regRange0.from;
-          if (rd < start) return false;
-        }
-        if (!e.hire_date) return true;
-        const hd = String(e.hire_date).slice(0, 10);
-        const end = e.employment_type === "パート" ? partRange0.to : regRange0.to;
-        return hd <= end;
+        const isParttime = e.employment_type === "パート";
+        const period = { start: isParttime ? partRange0.from : regRange0.from, end: isParttime ? partRange0.to : regRange0.to };
+        return isTargetInPeriod({ resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null }, period.start, period.end, "insurance", leavesMap.get(e.id) || []);
       });
 
       const { data: stRaw } = await supabase.from("stores").select("id, store_code, store_name").eq("company_id", employee.company_id);
