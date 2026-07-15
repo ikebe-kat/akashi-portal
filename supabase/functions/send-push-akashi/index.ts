@@ -74,18 +74,16 @@ function shortDate(dateStr: string): string {
   return `${d.getMonth()+1}/${d.getDate()}`;
 }
 
-async function getOnLeaveSet(sb: any, empIds: string[], targetDate: string): Promise<Set<string>> {
-  const { data: lvData } = await sb.from("employee_leaves")
-    .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
-    .in("employee_id", empIds)
-    .lte("leave_start_date", targetDate)
-    .or(`leave_end_date.is.null,leave_end_date.gt.${targetDate}`);
-  const s = new Set<string>();
-  for (const lv of (lvData || [])) {
-    const excls = ((lv as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target);
-    if (excls.includes("attendance")) s.add(lv.employee_id);
-  }
-  return s;
+// 3社共通のDB関数 fn_leave_days_in_period に一本化。
+// 会社IDを渡し、対象日1日分の休職(attendance除外)従業員IDセットを返す。
+async function getOnLeaveSet(sb: any, companyId: string, targetDate: string): Promise<Set<string>> {
+  const { data } = await sb.rpc("fn_leave_days_in_period", {
+    p_company_id: companyId,
+    p_period_start: targetDate,
+    p_period_end: targetDate,
+    p_target: "attendance",
+  });
+  return new Set<string>((data || []).map((r: any) => r.employee_id));
 }
 
 const corsHeaders = {
@@ -302,7 +300,7 @@ serve(async (req) => {
 
       const dateShort = shortDate(target_date);
 
-      const onLeaveSet = await getOnLeaveSet(sb, empIds, target_date);
+      const onLeaveSet = await getOnLeaveSet(sb, company_id, target_date);
 
       // 出勤すべき日から除外する「休み事由」
       const isLeaveReason = (rs: string | null) =>
@@ -412,8 +410,7 @@ serve(async (req) => {
 
       const { allEmps, storeMap } = await getEmpsAndStores(company_id);
 
-      const attEmpIds = [...new Set((attData || []).map((a: any) => a.employee_id))];
-      const mcOnLeaveSet = attEmpIds.length > 0 ? await getOnLeaveSet(sb, attEmpIds, target_date) : new Set<string>();
+      const mcOnLeaveSet = await getOnLeaveSet(sb, company_id, target_date);
 
       const allNames = allEmps.map((e: any) => e.full_name);
       const empMap: Record<string, { name: string; storeName: string; department: string; code: string; calDisplayName: string | null }> = {};

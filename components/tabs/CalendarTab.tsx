@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { T, DOW, PALETTE, CAL_GROUPS, stepMonth, displayReason, calendarDisplayName, AKASHI_COMPANY_ID } from "@/lib/constants";
-import { isDateOnLeave, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
+import { fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import { supabase } from "@/lib/supabase";
 import { getPermLevel, canShowCalendarGroupSelect, getDefaultCalendarGroup, canChooseTargetCalendar, canDeleteEvent, storeIdToCalGroup, getAllowedCalGroups } from "@/lib/permissions";
@@ -390,24 +390,17 @@ function RecentChanges({ employee, group, surnameRoster }: { employee: any; grou
         .eq("company_id", employee.company_id).not("updated_at","is",null).gte("updated_at", sinceStr).order("updated_at",{ascending:false}).limit(100),
     ]);
 
-    const rcEmpIds = [...new Set((attRes.data || []).map((r: any) => r.employee_id))];
-    const { data: rcLvRaw } = rcEmpIds.length > 0
-      ? await supabase.from("employee_leaves")
-          .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
-          .in("employee_id", rcEmpIds)
-      : { data: [] };
-    const rcLeavesMap = new Map<string, EmploymentLeaveRecord[]>();
-    for (const r of (rcLvRaw || [])) {
-      const rec: EmploymentLeaveRecord = { leave_start_date: r.leave_start_date, leave_end_date: r.leave_end_date, exclusions: ((r as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
-      const arr = rcLeavesMap.get(r.employee_id) || [];
-      arr.push(rec);
-      rcLeavesMap.set(r.employee_id, arr);
-    }
+    const rcDates = (attRes.data || []).map((r: any) => r.attendance_date as string);
+    const rcMinDate = rcDates.length > 0 ? rcDates.reduce((a, b) => a < b ? a : b) : "";
+    const rcMaxDate = rcDates.length > 0 ? rcDates.reduce((a, b) => a > b ? a : b) : "";
+    const rcLeaveSet = rcDates.length > 0
+      ? await fetchLeaveDays(employee.company_id, rcMinDate, rcMaxDate, "attendance")
+      : new Set<string>();
 
     const history: HistoryItem[] = [];
     for (const row of (attRes.data || [])) {
       const emp = row.employees as any; if (!emp || emp.employee_code === "D02") continue;
-      if (isDateOnLeave(row.attendance_date as string, rcLeavesMap.get(row.employee_id) || [], "attendance")) continue;
+      if (rcLeaveSet.has(leaveKey(row.employee_id, row.attendance_date as string))) continue;
       const cg = storeIdToCalGroup(emp.store_id || null, emp.department || null);
       if (group !== "all" && cg !== group) continue;
       const reason = row.reason as string;
@@ -565,22 +558,10 @@ export default function CalendarTab({ employee }: { employee: any }) {
       .not("reason", "is", null)
       .neq("reason", "");
 
-    const attEmpIds = [...new Set((attData || []).map((r: any) => r.employee_id))];
-    const { data: calLvRaw } = attEmpIds.length > 0
-      ? await supabase.from("employee_leaves")
-          .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
-          .in("employee_id", attEmpIds)
-      : { data: [] };
-    const calLeavesMap = new Map<string, EmploymentLeaveRecord[]>();
-    for (const r of (calLvRaw || [])) {
-      const rec: EmploymentLeaveRecord = { leave_start_date: r.leave_start_date, leave_end_date: r.leave_end_date, exclusions: ((r as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
-      const arr = calLeavesMap.get(r.employee_id) || [];
-      arr.push(rec);
-      calLeavesMap.set(r.employee_id, arr);
-    }
+    const calLeaveSet = await fetchLeaveDays(employee.company_id, monthStart, monthEnd, "attendance");
 
     const mapped: AttendanceEvent[] = (attData || [])
-      .filter((row: any) => row.reason && row.reason !== "公休（全日）" && !isDateOnLeave(row.attendance_date, calLeavesMap.get(row.employee_id) || [], "attendance") && (row.employees as any)?.employee_code !== "D02")
+      .filter((row: any) => row.reason && row.reason !== "公休（全日）" && !calLeaveSet.has(leaveKey(row.employee_id, row.attendance_date)) && (row.employees as any)?.employee_code !== "D02")
       .map((row: any) => ({
         employee_id: row.employee_id,
         full_name: (row.employees as any)?.full_name || "不明",

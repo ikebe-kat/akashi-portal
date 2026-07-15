@@ -3,7 +3,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { AKASHI_COMPANY_ID } from '@/lib/constants';
-import { checkEmploymentInPeriod, isDateOnLeave, type LeaveRecord as EmploymentLeaveRecord } from '@/lib/employment';
+import { fetchEmploymentStatus, fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -37,7 +37,9 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
   const attendance = await fetchAttendance(allStart, allEnd);
   const existingPayroll = await fetchExistingPayroll(yearMonth);
   const leaveRequests = await fetchLeaveRequests(allStart, allEnd);
-  const employeeLeavesMap = await fetchEmployeeLeaves(employees.map(e => e.employee_id));
+  const statusFullMap = await fetchEmploymentStatus(AKASHI_COMPANY_ID, fulltimePeriod.start, fulltimePeriod.end, 'payroll');
+  const statusPartMap = await fetchEmploymentStatus(AKASHI_COMPANY_ID, parttimePeriod.start, parttimePeriod.end, 'payroll');
+  const leaveDaysSet = await fetchLeaveDays(AKASHI_COMPANY_ID, allStart, allEnd, 'attendance');
 
   const results: PayrollResult[] = [];
 
@@ -46,9 +48,8 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
 
     const isParttime = emp.employment_type === 'パート';
     const period = isParttime ? parttimePeriod : fulltimePeriod;
-    const empLeaveRecords = employeeLeavesMap.get(emp.employee_id) || [];
 
-    const empStatus = checkEmploymentInPeriod(emp, period.start, period.end, 'payroll', empLeaveRecords);
+    const empStatus = (isParttime ? statusPartMap : statusFullMap).get(emp.employee_id) ?? 'active';
     if (empStatus === 'not_employed') continue;
     if (empStatus === 'excluded') {
       results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
@@ -65,11 +66,11 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
     const adjustmentAmount = mode === 'full' ? 0 : (existingAdj?.adjustment_allowance ?? 0);
 
     if (isParttime) {
-      results.push(calculateParttime(emp, period, empAttendance, empLeaves, yearMonth, adjustmentAmount, empLeaveRecords));
+      results.push(calculateParttime(emp, period, empAttendance, empLeaves, yearMonth, adjustmentAmount, leaveDaysSet));
     } else {
       const empHolidays = holidaysByType.get(emp.holiday_calendar || '') || new Set<string>();
       const monthlyStandardHours = calculateMonthlyStandardHours(empHolidays, fulltimePeriod);
-      results.push(calculateFulltime(emp, period, empAttendance, empLeaves, empHolidays, yearMonth, monthlyStandardHours, adjustmentAmount, empLeaveRecords));
+      results.push(calculateFulltime(emp, period, empAttendance, empLeaves, empHolidays, yearMonth, monthlyStandardHours, adjustmentAmount, leaveDaysSet));
     }
   }
 
@@ -84,7 +85,7 @@ function calculateFulltime(
   attendance: AttendanceRecord[], leaves: LeaveRecord[],
   holidays: Set<string>, yearMonth: string,
   monthlyStandardHours: number, adjustmentAmount: number,
-  employmentLeaves: EmploymentLeaveRecord[],
+  leaveDaysSet: Set<string>,
 ): PayrollResult {
   const dailyDetails: DailyCalc[] = [];
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, absenceDays = 0, workDays = 0;
@@ -99,7 +100,7 @@ function calculateFulltime(
     const leave = leaves.find(l => l.attendance_date === dateStr);
     const hasLeave = !!leave;
 
-    if (isDateOnLeave(dateStr, employmentLeaves, 'attendance')) {
+    if (leaveDaysSet.has(leaveKey(emp.employee_id, dateStr))) {
       dailyDetails.push({ date: dateStr, dayOfWeek, clockIn: null, clockOut: null, workMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, isHoliday, isAbsent: false, hasLeave: false, leaveType: '休職', hasWarning: false, warningMessage: null, appliedHourlyRate: null });
       continue;
     }
@@ -214,7 +215,7 @@ function calculateParttime(
   emp: PayrollConfig, period: { start: string; end: string },
   attendance: AttendanceRecord[], leaves: LeaveRecord[],
   yearMonth: string, adjustmentAmount: number,
-  employmentLeaves: EmploymentLeaveRecord[],
+  leaveDaysSet: Set<string>,
 ): PayrollResult {
   const dailyDetails: DailyCalc[] = [];
   let weekdayMinutes = 0, saturdayMinutes = 0, sundayMinutes = 0;
@@ -231,7 +232,7 @@ function calculateParttime(
     const record = attendance.find(a => a.attendance_date === dateStr);
     const leave = leaves.find(l => l.attendance_date === dateStr);
 
-    if (isDateOnLeave(dateStr, employmentLeaves, 'attendance')) {
+    if (leaveDaysSet.has(leaveKey(emp.employee_id, dateStr))) {
       dailyDetails.push({ date: dateStr, dayOfWeek, clockIn: null, clockOut: null, workMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, isHoliday: false, isAbsent: false, hasLeave: false, leaveType: '休職', hasWarning: false, warningMessage: null, appliedHourlyRate: null });
       continue;
     }
@@ -459,26 +460,6 @@ async function fetchLeaveRequests(start: string, end: string): Promise<LeaveReco
     .eq('company_id', AKASHI_COMPANY_ID).eq('status', '承認').gte('attendance_date', start).lte('attendance_date', end);
   if (error) throw new Error(`有給データ取得エラー: ${error.message}`);
   return data || [];
-}
-
-async function fetchEmployeeLeaves(employeeIds: string[]): Promise<Map<string, EmploymentLeaveRecord[]>> {
-  const map = new Map<string, EmploymentLeaveRecord[]>();
-  if (employeeIds.length === 0) return map;
-  const { data } = await supabase
-    .from('employee_leaves')
-    .select('employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )')
-    .in('employee_id', employeeIds);
-  for (const row of (data || [])) {
-    const rec: EmploymentLeaveRecord = {
-      leave_start_date: row.leave_start_date,
-      leave_end_date: row.leave_end_date,
-      exclusions: ((row as any).employee_leave_exclusions || []).map((e: any) => e.exclusion_target),
-    };
-    const arr = map.get(row.employee_id) || [];
-    arr.push(rec);
-    map.set(row.employee_id, arr);
-  }
-  return map;
 }
 
 async function fetchExistingPayroll(yearMonth: string) {

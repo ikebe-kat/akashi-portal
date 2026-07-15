@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
-import { checkEmploymentInPeriod, isDateOnLeave, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
+import { fetchEmploymentStatus, fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
 
 const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 
@@ -94,22 +94,13 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       if (!empRaw?.length) { setDialogMsg("従業員データがありません"); return; }
       const regRange0 = getDateRange(selYear, selMonth, false);
       const partRange0 = getDateRange(selYear, selMonth, true);
-      const empIds = empRaw.map((e: any) => e.id);
-      const { data: leavesRaw } = await supabase.from("employee_leaves")
-        .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
-        .in("employee_id", empIds);
-      const leavesMap = new Map<string, EmploymentLeaveRecord[]>();
-      for (const row of (leavesRaw || [])) {
-        const rec: EmploymentLeaveRecord = { leave_start_date: row.leave_start_date, leave_end_date: row.leave_end_date, exclusions: ((row as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
-        const arr = leavesMap.get(row.employee_id) || [];
-        arr.push(rec);
-        leavesMap.set(row.employee_id, arr);
-      }
+      const statusFullMap = await fetchEmploymentStatus(employee.company_id, regRange0.from, regRange0.to, "insurance");
+      const statusPartMap = await fetchEmploymentStatus(employee.company_id, partRange0.from, partRange0.to, "insurance");
       const empFiltered = empRaw.filter((e: any) => {
         if (HONBU_CODES.includes(e.employee_code)) return false;
         const isParttime = e.employment_type === "パート";
-        const period = { start: isParttime ? partRange0.from : regRange0.from, end: isParttime ? partRange0.to : regRange0.to };
-        return checkEmploymentInPeriod({ resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null }, period.start, period.end, "insurance", leavesMap.get(e.id) || []) !== "not_employed";
+        const st = (isParttime ? statusPartMap : statusFullMap).get(e.id) ?? "active";
+        return st !== "not_employed";
       });
 
       const { data: stRaw } = await supabase.from("stores").select("id, store_code, store_name").eq("company_id", employee.company_id);
@@ -121,6 +112,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const partRange = getDateRange(selYear, selMonth, true);
       const broadStart = partRange.from < regularRange.from ? partRange.from : regularRange.from;
       const broadEnd = regularRange.to > partRange.to ? regularRange.to : partRange.to;
+      const leaveDaysSet = await fetchLeaveDays(employee.company_id, broadStart, broadEnd, "attendance");
 
       const { data: attRaw, error: attErr } = await supabase.from("attendance_daily")
         .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, actual_hours, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday")
@@ -173,7 +165,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           const [, dm, dd] = ds.split("-");
           const dw = DOW[dayInfo.dow];
           const aRaw = ma.get(ds);
-          const onLeaveDay = isDateOnLeave(ds, leavesMap.get(emp.id) || [], "attendance");
+          const onLeaveDay = leaveDaysSet.has(leaveKey(emp.id, ds));
           const a = aRaw && onLeaveDay ? { ...aRaw, reason: "休職" as string | null } : aRaw;
           const isHol = empHols.has(ds);
           let rs = "", pi = "", po = "", lt = "", et = "", ot = "", sc = "", ct = "", ou = "";
@@ -251,7 +243,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           const bk = DOW_LABELS.map(() => ({ w: 0, sm: 0, y: 0, sh: 0, k: 0, oth: 0, lc: 0, lm: 0, ec: 0, em: 0, om: 0, um: 0 }));
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
-            if (isDateOnLeave(dateKey, leavesMap.get(ip.emp.id) || [], "attendance")) continue;
+            if (leaveDaysSet.has(leaveKey(ip.emp.id, dateKey))) continue;
             const dow = new Date(dateKey + "T00:00:00").getDay();
             const b = bk[dow === 0 ? 2 : dow === 6 ? 1 : 0];
             if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) b.w++;
@@ -282,7 +274,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
-            if (isDateOnLeave(dateKey, leavesMap.get(ip.emp.id) || [], "attendance")) continue;
+            if (leaveDaysSet.has(leaveKey(ip.emp.id, dateKey))) continue;
             if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
             if (a.punch_in && a.punch_out) {
               const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
@@ -307,7 +299,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           let w = 0, sm = 0, y = 0, sh = 0, k = 0, oth = 0, lc = 0, lm = 0, ec = 0, em2 = 0, om = 0, um = 0;
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
-            if (isDateOnLeave(dateKey, leavesMap.get(ip.emp.id) || [], "attendance")) continue;
+            if (leaveDaysSet.has(leaveKey(ip.emp.id, dateKey))) continue;
             if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
             if (a.actual_hours) { sm += Math.round(a.actual_hours * 60); }
             if (a.reason) {

@@ -15,7 +15,7 @@ import LeaveApprovalSub from "@/components/tabs/LeaveApprovalSub";
 import PayrollSub from "@/components/tabs/PayrollSub";
 import ShiftSub from "@/components/tabs/ShiftSub";
 import EntryApplicationsSub from "@/components/tabs/EntryApplicationsSub";
-import { checkEmploymentInPeriod, isDateOnLeave, type LeaveRecord as EmploymentLeaveRecord } from "@/lib/employment";
+import { fetchEmploymentStatus, fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
 
 interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; resigned_at: string | null; employment_type: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; break_minutes_self_reported: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
@@ -467,17 +467,14 @@ const IndividualSub = ({ employee }: { employee: any }) => {
     }
 
     const { data } = await supabase.from("attendance_daily").select("*").eq("employee_id", empId).gte("attendance_date", startDate).lte("attendance_date", endDate).order("attendance_date");
-    const { data: lvRaw } = await supabase.from("employee_leaves")
-      .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
-      .eq("employee_id", empId);
-    const empLeaves: EmploymentLeaveRecord[] = (lvRaw || []).map((r: any) => ({ leave_start_date: r.leave_start_date, leave_end_date: r.leave_end_date, exclusions: (r.employee_leave_exclusions || []).map((x: any) => x.exclusion_target) }));
+    const leaveDaysSet = await fetchLeaveDays(employee.company_id, startDate, endDate, "attendance");
     const dataMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { dataMap[r.attendance_date] = r; });
     const allDays: AttRow[] = [];
     for (const rd of range.days) {
       const dateStr = rd.dateStr;
       const isHoliday = holidaySet.has(dateStr);
-      const onLeave = isDateOnLeave(dateStr, empLeaves, "attendance");
+      const onLeave = leaveDaysSet.has(leaveKey(empId, dateStr));
       if (dataMap[dateStr]) {
         const existing = dataMap[dateStr];
         if (onLeave) {
@@ -819,21 +816,12 @@ const DailySub = ({ employee }: { employee: any }) => {
     }
 
     const { data } = await supabase.from("attendance_daily").select("*").eq("attendance_date", selectedDate).in("employee_id", empIds).order("employee_id");
-    const { data: lvRaw } = await supabase.from("employee_leaves")
-      .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
-      .in("employee_id", empIds);
-    const dailyLeavesMap = new Map<string, EmploymentLeaveRecord[]>();
-    for (const r of (lvRaw || [])) {
-      const rec: EmploymentLeaveRecord = { leave_start_date: r.leave_start_date, leave_end_date: r.leave_end_date, exclusions: ((r as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
-      const arr = dailyLeavesMap.get(r.employee_id) || [];
-      arr.push(rec);
-      dailyLeavesMap.set(r.employee_id, arr);
-    }
+    const dailyLeaveSet = await fetchLeaveDays(employee.company_id, selectedDate, selectedDate, "attendance");
     const attMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { attMap[r.employee_id] = r; });
     const allRows: DailyRow[] = scopedEmps.map(emp => {
       const isHoliday = emp.holiday_calendar ? (holidayByCalType[emp.holiday_calendar] || false) : false;
-      const onLeave = isDateOnLeave(selectedDate, dailyLeavesMap.get(emp.id) || [], "attendance");
+      const onLeave = dailyLeaveSet.has(leaveKey(emp.id, selectedDate));
       const att = attMap[emp.id];
       if (att) {
         const row: DailyRow = { ...att, emp_code: emp.code, emp_name: emp.name, store_name: emp.store_name, employment_type: emp.employment_type };
@@ -1034,21 +1022,12 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     let scopedEmps = emps;
     if (perm === "admin") scopedEmps = emps.filter(e => canEditPunch(myCode, e.store_id, e.department));
     if (storeFilter !== "all") scopedEmps = scopedEmps.filter(e => matchStoreFilter(e, storeFilter));
-    const scopedIds = scopedEmps.map(e => e.id);
-    const { data: leavesRaw } = await supabase.from("employee_leaves")
-      .select("employee_id, leave_start_date, leave_end_date, employee_leave_exclusions ( exclusion_target )")
-      .in("employee_id", scopedIds);
-    const leavesMap = new Map<string, EmploymentLeaveRecord[]>();
-    for (const row of (leavesRaw || [])) {
-      const rec: EmploymentLeaveRecord = { leave_start_date: row.leave_start_date, leave_end_date: row.leave_end_date, exclusions: ((row as any).employee_leave_exclusions || []).map((x: any) => x.exclusion_target) };
-      const arr = leavesMap.get(row.employee_id) || [];
-      arr.push(rec);
-      leavesMap.set(row.employee_id, arr);
-    }
+    const statusFullMap = await fetchEmploymentStatus(employee.company_id, regularRange.from, regularRange.to, "payroll");
+    const statusPartMap = await fetchEmploymentStatus(employee.company_id, partRange.from, partRange.to, "payroll");
     scopedEmps = scopedEmps.filter((e: any) => {
       const isParttime = e.employment_type === "パート";
-      const period = { start: isParttime ? partRange.from : regularRange.from, end: isParttime ? partRange.to : regularRange.to };
-      return checkEmploymentInPeriod({ resigned_at: e.resigned_at, hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null }, period.start, period.end, "payroll", leavesMap.get(e.id) || []) !== "not_employed";
+      const st = (isParttime ? statusPartMap : statusFullMap).get(e.id) ?? "active";
+      return st !== "not_employed";
     });
 
     const empIds = scopedEmps.map(e => e.id);
