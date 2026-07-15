@@ -420,7 +420,8 @@ const IndividualSub = ({ employee }: { employee: any }) => {
   const [yr, setYr] = useState(new Date().getFullYear());
   const [mo, setMo] = useState(new Date().getMonth() + 1);
   const [rows, setRows] = useState<AttRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  // 初期値 true にして、初回マウント〜fetchAttendance発火の間に「データがありません」が瞬間表示されるのを防ぐ。
+  const [loading, setLoading] = useState(true);
   const [editRow, setEditRow] = useState<AttRow | null>(null);
   const [dialogMsg, setDialogMsg] = useState<string | null>(null);
 
@@ -454,20 +455,23 @@ const IndividualSub = ({ employee }: { employee: any }) => {
     const endDate = range.to;
 
     const calType = emp?.holiday_calendar || null;
-    let holidaySet = new Set<string>();
-    if (calType) {
-      const { data: hcData } = await supabase
-        .from("holiday_calendars")
-        .select("holiday_date")
-        .eq("company_id", employee.company_id)
-        .eq("calendar_type", calType)
-        .gte("holiday_date", startDate)
-        .lte("holiday_date", endDate);
-      (hcData || []).forEach((h: any) => { holidaySet.add(h.holiday_date); });
-    }
 
-    const { data } = await supabase.from("attendance_daily").select("*").eq("employee_id", empId).gte("attendance_date", startDate).lte("attendance_date", endDate).order("attendance_date");
-    const leaveDaysSet = await fetchLeaveDays(employee.company_id, startDate, endDate, "attendance");
+    // 独立して取得できる3つ(holidays / attendance / leave_days) を並列取得。依存関係が無いので Promise.all で1ラウンドに詰める。
+    const holidayPromise = calType
+      ? supabase.from("holiday_calendars").select("holiday_date")
+          .eq("company_id", employee.company_id)
+          .eq("calendar_type", calType)
+          .gte("holiday_date", startDate)
+          .lte("holiday_date", endDate)
+      : Promise.resolve({ data: [] as any[], error: null } as any);
+    const attPromise = supabase.from("attendance_daily").select("*").eq("employee_id", empId).gte("attendance_date", startDate).lte("attendance_date", endDate).order("attendance_date");
+    const leavePromise = fetchLeaveDays(employee.company_id, startDate, endDate, "attendance")
+      .catch((e) => { console.error("[AdminTab Individual] fetchLeaveDays threw:", e); return new Set<string>(); });
+    const [hcRes, attRes, leaveDaysSet] = await Promise.all([holidayPromise, attPromise, leavePromise]);
+
+    let holidaySet = new Set<string>();
+    (((hcRes as any).data) || []).forEach((h: any) => { holidaySet.add(h.holiday_date); });
+    const data = ((attRes as any).data) as any[] | null;
     const dataMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { dataMap[r.attendance_date] = r; });
     const allDays: AttRow[] = [];
@@ -772,7 +776,8 @@ const DailySub = ({ employee }: { employee: any }) => {
   const [stores, setStores] = useState<{ id: string; name: string }[]>([]);
   const [emps, setEmps] = useState<EmpOption[]>([]);
   const [rows, setRows] = useState<DailyRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  // 初期値 true にして、初回マウント〜fetchDaily発火の間に「データがありません」が瞬間表示されるのを防ぐ。
+  const [loading, setLoading] = useState(true);
   const [editRow, setEditRow] = useState<DailyRow | null>(null);
   const [editEmpName, setEditEmpName] = useState("");
   const [dialogMsg, setDialogMsg] = useState<string | null>(null);
@@ -794,7 +799,7 @@ const DailySub = ({ employee }: { employee: any }) => {
   }, [employee?.company_id]);
 
   const fetchDaily = useCallback(async () => {
-    if (!selectedDate || emps.length === 0) return;
+    if (!selectedDate || emps.length === 0) { setLoading(false); return; }
     setLoading(true);
     let scopedEmps = emps;
     if (perm === "admin") scopedEmps = emps.filter(e => canEditPunch(myCode, e.store_id, e.department));
@@ -803,20 +808,22 @@ const DailySub = ({ employee }: { employee: any }) => {
     const empMap: Record<string, EmpOption> = {};
     scopedEmps.forEach(e => { empMap[e.id] = e; });
 
+    // 独立して取得できる3つ(holidays / attendance / leaveDays) を並列取得。全部 selectedDate + scopedEmps 由来で相互に依存しない。
     const calTypes = [...new Set(scopedEmps.map(e => e.holiday_calendar).filter(Boolean))] as string[];
-    const holidayByCalType: Record<string, boolean> = {};
-    if (calTypes.length > 0) {
-      const { data: hcData } = await supabase
-        .from("holiday_calendars")
-        .select("calendar_type")
-        .eq("company_id", employee.company_id)
-        .eq("holiday_date", selectedDate)
-        .in("calendar_type", calTypes);
-      (hcData || []).forEach((h: any) => { holidayByCalType[h.calendar_type] = true; });
-    }
+    const hcPromise = calTypes.length > 0
+      ? supabase.from("holiday_calendars").select("calendar_type")
+          .eq("company_id", employee.company_id)
+          .eq("holiday_date", selectedDate)
+          .in("calendar_type", calTypes)
+      : Promise.resolve({ data: [] as any[], error: null } as any);
+    const attPromise = supabase.from("attendance_daily").select("*").eq("attendance_date", selectedDate).in("employee_id", empIds).order("employee_id");
+    const leavePromise = fetchLeaveDays(employee.company_id, selectedDate, selectedDate, "attendance")
+      .catch((e) => { console.error("[AdminTab Daily] fetchLeaveDays threw:", e); return new Set<string>(); });
+    const [hcRes, attRes, dailyLeaveSet] = await Promise.all([hcPromise, attPromise, leavePromise]);
 
-    const { data } = await supabase.from("attendance_daily").select("*").eq("attendance_date", selectedDate).in("employee_id", empIds).order("employee_id");
-    const dailyLeaveSet = await fetchLeaveDays(employee.company_id, selectedDate, selectedDate, "attendance");
+    const holidayByCalType: Record<string, boolean> = {};
+    (((hcRes as any).data) || []).forEach((h: any) => { holidayByCalType[h.calendar_type] = true; });
+    const data = ((attRes as any).data) as any[] | null;
     const attMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { attMap[r.employee_id] = r; });
     const allRows: DailyRow[] = scopedEmps.map(emp => {
@@ -992,7 +999,8 @@ const MonthlySub = ({ employee }: { employee: any }) => {
   const [stores, setStores] = useState<{ id: string; name: string }[]>([]);
   const [emps, setEmps] = useState<EmpOption[]>([]);
   const [rows, setRows] = useState<MonthlyRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  // 初期値 true にして、初回マウント〜fetchMonthly発火の間に「データがありません」が瞬間表示されるのを防ぐ。
+  const [loading, setLoading] = useState(true);
   const [varHours, setVarHours] = useState(0);
 
   useEffect(() => {
@@ -1011,7 +1019,7 @@ const MonthlySub = ({ employee }: { employee: any }) => {
   const goMonth = (dir: number) => { let ny = yr, nm = mo + dir; if (nm > 12) { nm = 1; ny++; } else if (nm < 1) { nm = 12; ny--; } setYr(ny); setMo(nm); };
 
   const fetchMonthly = useCallback(async () => {
-    if (emps.length === 0) return;
+    if (emps.length === 0) { setLoading(false); return; }
     setLoading(true);
     const regularRange = getDateRange(yr, mo, false);
     const partRange = getDateRange(yr, mo, true);
@@ -1022,8 +1030,19 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     let scopedEmps = emps;
     if (perm === "admin") scopedEmps = emps.filter(e => canEditPunch(myCode, e.store_id, e.department));
     if (storeFilter !== "all") scopedEmps = scopedEmps.filter(e => matchStoreFilter(e, storeFilter));
-    const statusFullMap = await fetchEmploymentStatus(employee.company_id, regularRange.from, regularRange.to, "payroll");
-    const statusPartMap = await fetchEmploymentStatus(employee.company_id, partRange.from, partRange.to, "payroll");
+    // Level 1: fetchEmploymentStatus x2(regular/part) と variable_hours を全部並列取得。全部 scopedEmps に依存しない。
+    const [statusFullMap, statusPartMap, varRes] = await Promise.all([
+      fetchEmploymentStatus(employee.company_id, regularRange.from, regularRange.to, "payroll")
+        .catch((e) => { console.error("[AdminTab Monthly] fetchEmploymentStatus(full) threw:", e); return new Map<string, EmploymentStatus>(); }),
+      fetchEmploymentStatus(employee.company_id, partRange.from, partRange.to, "payroll")
+        .catch((e) => { console.error("[AdminTab Monthly] fetchEmploymentStatus(part) threw:", e); return new Map<string, EmploymentStatus>(); }),
+      supabase.from("variable_hours").select("scheduled_hours")
+        .eq("company_id", employee.company_id).eq("year_month", yearMonth).limit(1).maybeSingle(),
+    ]);
+    const varData = (varRes as any).data;
+    const monthScheduled = varData?.scheduled_hours ? Math.round(Number(varData.scheduled_hours) * 60) : 0;
+    setVarHours(monthScheduled);
+
     scopedEmps = scopedEmps.filter((e: any) => {
       const isParttime = e.employment_type === "パート";
       const st = (isParttime ? statusPartMap : statusFullMap).get(e.id) ?? "active";
@@ -1034,31 +1053,27 @@ const MonthlySub = ({ employee }: { employee: any }) => {
     const empMap: Record<string, EmpOption> = {};
     scopedEmps.forEach(e => { empMap[e.id] = e; });
 
+    // Level 2: 休日 と 勤怠 を並列取得。両方 scopedEmps 由来の calTypes/empIds に依存。
     const calTypes = [...new Set(scopedEmps.map(e => e.holiday_calendar).filter(Boolean))] as string[];
-    const holidaysByCalType: Record<string, string[]> = {};
-    if (calTypes.length > 0) {
-      const { data: hcData } = await supabase
-        .from("holiday_calendars")
-        .select("calendar_type, holiday_date")
-        .eq("company_id", employee.company_id)
-        .gte("holiday_date", broadStart)
-        .lte("holiday_date", broadEnd)
-        .in("calendar_type", calTypes);
-      (hcData || []).forEach((h: any) => {
-        if (!holidaysByCalType[h.calendar_type]) holidaysByCalType[h.calendar_type] = [];
-        holidaysByCalType[h.calendar_type].push(h.holiday_date);
-      });
-    }
-
-    const { data: attData } = await supabase.from("attendance_daily").select("employee_id, attendance_date, reason, actual_hours, scheduled_hours, overtime_hours, over_under, late_minutes, early_leave_minutes, is_holiday, punch_in, punch_out, break_minutes_self_reported")
+    const hcPromise = calTypes.length > 0
+      ? supabase.from("holiday_calendars").select("calendar_type, holiday_date")
+          .eq("company_id", employee.company_id)
+          .gte("holiday_date", broadStart)
+          .lte("holiday_date", broadEnd)
+          .in("calendar_type", calTypes)
+      : Promise.resolve({ data: [] as any[], error: null } as any);
+    const attPromise = supabase.from("attendance_daily").select("employee_id, attendance_date, reason, actual_hours, scheduled_hours, overtime_hours, over_under, late_minutes, early_leave_minutes, is_holiday, punch_in, punch_out, break_minutes_self_reported")
       .eq("company_id", employee.company_id)
       .gte("attendance_date", broadStart).lte("attendance_date", broadEnd).in("employee_id", empIds)
       .range(0, 99999);
+    const [hcRes, attRes] = await Promise.all([hcPromise, attPromise]);
 
-    const { data: varData } = await supabase.from("variable_hours").select("scheduled_hours")
-      .eq("company_id", employee.company_id).eq("year_month", yearMonth).limit(1).maybeSingle();
-    const monthScheduled = varData?.scheduled_hours ? Math.round(Number(varData.scheduled_hours) * 60) : 0;
-    setVarHours(monthScheduled);
+    const holidaysByCalType: Record<string, string[]> = {};
+    (((hcRes as any).data) || []).forEach((h: any) => {
+      if (!holidaysByCalType[h.calendar_type]) holidaysByCalType[h.calendar_type] = [];
+      holidaysByCalType[h.calendar_type].push(h.holiday_date);
+    });
+    const attData = ((attRes as any).data) as any[] | null;
 
     const grouped: Record<string, any[]> = {};
     (attData || []).forEach((r: any) => {
