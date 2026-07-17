@@ -3,7 +3,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { AKASHI_COMPANY_ID } from '@/lib/constants';
-import { fetchEmploymentStatus, fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
+import { fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -42,8 +42,6 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
   const attendance = await fetchAttendance(allStart, allEnd);
   const existingPayroll = await fetchExistingPayroll(yearMonth);
   const leaveRequests = await fetchLeaveRequests(allStart, allEnd);
-  const statusFullMap = await fetchEmploymentStatus(AKASHI_COMPANY_ID, fulltimePeriod.start, fulltimePeriod.end, 'payroll');
-  const statusPartMap = await fetchEmploymentStatus(AKASHI_COMPANY_ID, parttimePeriod.start, parttimePeriod.end, 'payroll');
   const leaveDaysSet = await fetchLeaveDays(AKASHI_COMPANY_ID, allStart, allEnd, 'attendance');
 
   const results: PayrollResult[] = [];
@@ -53,13 +51,6 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
 
     const isParttime = emp.employment_type === 'パート';
     const period = isParttime ? parttimePeriod : fulltimePeriod;
-
-    const empStatus = (isParttime ? statusPartMap : statusFullMap).get(emp.employee_id) ?? 'active';
-    if (empStatus === 'not_employed') continue;
-    if (empStatus === 'excluded') {
-      results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
-      continue;
-    }
 
     if (!emp.requires_punch) {
       results.push(createZeroResult(emp, yearMonth, fulltimePeriod, parttimePeriod));
@@ -106,9 +97,10 @@ function calculateFulltime(
     const record = attendance.find(a => a.attendance_date === dateStr);
     const leave = leaves.find(l => l.attendance_date === dateStr);
     const hasLeave = !!leave;
+    const isLeaveDay = leaveDaysSet.has(leaveKey(emp.employee_id, dateStr));
 
-    if (leaveDaysSet.has(leaveKey(emp.employee_id, dateStr))) {
-      dailyDetails.push({ date: dateStr, dayOfWeek, clockIn: null, clockOut: null, workMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, isHoliday, isAbsent: false, hasLeave: false, leaveType: '休職', hasWarning: false, warningMessage: null, appliedHourlyRate: null });
+    if (emp.hire_date && dateStr < emp.hire_date) {
+      dailyDetails.push({ date: dateStr, dayOfWeek, clockIn: null, clockOut: null, workMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, isHoliday, isAbsent: false, hasLeave: false, leaveType: null, hasWarning: false, warningMessage: null, appliedHourlyRate: null });
       continue;
     }
 
@@ -117,7 +109,7 @@ function calculateFulltime(
       clockIn: record?.punch_in ?? null, clockOut: record?.punch_out ?? null,
       workMinutes: 0, overtimeMinutes: 0, breakMinutes: 60,
       isHoliday, isAbsent: false, hasLeave,
-      leaveType: leave?.reason ?? null,
+      leaveType: isLeaveDay ? '休職' : (leave?.reason ?? null),
       hasWarning: false, warningMessage: null, appliedHourlyRate: null,
     };
 
@@ -131,7 +123,6 @@ function calculateFulltime(
         }
       }
     } else if (record?.reason?.includes('有給（全日）')) {
-      // 有給日数は attendance_daily.reason 基準で集計（leave_requests の有無に依存しない）
       paidLeaveDays += 1;
     } else if (record?.reason?.includes('午前有給') || record?.reason?.includes('午後有給')) {
       paidLeaveDays += 0.5;
@@ -146,8 +137,7 @@ function calculateFulltime(
       daily.hasWarning = true;
       daily.warningMessage = `${dateStr}: 退勤打刻漏れ`;
       warnings.push(daily.warningMessage);
-    } else if (record?.reason?.includes('欠勤')) {
-      // 欠勤は reason に「欠勤」が入っている日のみ。空白日・事由なしの日は欠勤にしない
+    } else {
       daily.isAbsent = true; absenceDays++;
     }
     if (!isHoliday && record) {
@@ -184,15 +174,17 @@ function calculateFulltime(
 
   const absenceBase = emp.base_salary + emp.position_allowance + emp.qualification_allowance
     + emp.fixed_overtime_amount + emp.dependent_allowance;
-  const absenceDeduction = absenceDays > 0 && monthlyStandardHours > 0
-    ? Math.round(absenceBase / monthlyStandardHours * absenceDays * 8) : 0;
+  const absenceDeduction = absenceDays > 0
+    ? Math.round(absenceBase / AVERAGE_WORK_DAYS * absenceDays) : 0;
 
   const lateEarlyDeduction = totalLateEarlyMinutes > 0 && monthlyStandardHours > 0
     ? Math.round(absenceBase / monthlyStandardHours / 60 * totalLateEarlyMinutes) : 0;
 
-  const grossTotal = baseSalary + positionAllowance + qualificationAllowance
+  const totalAllowances = baseSalary + positionAllowance + qualificationAllowance
     + commuteAllowance + dependentAllowance + fixedOvertimeAmount
-    + excessOvertimeAmount + adjustmentAmount - absenceDeduction - lateEarlyDeduction;
+    + excessOvertimeAmount + adjustmentAmount;
+  const totalDeduction = Math.min(absenceDeduction + lateEarlyDeduction, totalAllowances);
+  const grossTotal = totalAllowances - totalDeduction;
 
   return {
     employee_id: emp.employee_id, employee_code: emp.employee_code,
@@ -208,7 +200,7 @@ function calculateFulltime(
     qualification_allowance: qualificationAllowance, commute_allowance: commuteAllowance,
     dependent_allowance: dependentAllowance, fixed_overtime_amount: fixedOvertimeAmount,
     excess_overtime_amount: excessOvertimeAmount, adjustment_amount: adjustmentAmount,
-    absence_deduction: absenceDeduction + lateEarlyDeduction, paid_leave_days: paidLeaveDays, paid_leave_amount: 0,
+    absence_deduction: totalDeduction, paid_leave_days: paidLeaveDays, paid_leave_amount: 0,
     gross_total: grossTotal,
     has_warning: warnings.length > 0, warning_details: warnings,
     is_manual_adjusted: false, daily_details: dailyDetails,
