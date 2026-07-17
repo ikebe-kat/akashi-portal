@@ -87,13 +87,24 @@ function calculateFulltime(
 ): PayrollResult {
   const dailyDetails: DailyCalc[] = [];
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, absenceDays = 0, workDays = 0;
-  let paidLeaveDays = 0, totalLateEarlyMinutes = 0;
+  let paidLeaveDays = 0, totalLateEarlyMinutes = 0, outOfTenureDays = 0;
   const warnings: string[] = [];
   const dates = getDateRange(period.start, period.end);
+  const scheduledDaysInPeriod = dates.filter(d => !holidays.has(d)).length;
 
   for (const dateStr of dates) {
     const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
     const isHoliday = holidays.has(dateStr);
+    if ((emp.hire_date && dateStr < emp.hire_date) || (emp.resigned_at && dateStr > emp.resigned_at)) {
+      if (!isHoliday) outOfTenureDays++;
+      dailyDetails.push({
+        date: dateStr, dayOfWeek, clockIn: null, clockOut: null,
+        workMinutes: 0, overtimeMinutes: 0, breakMinutes: 0,
+        isHoliday, isAbsent: false, hasLeave: false, leaveType: null,
+        hasWarning: false, warningMessage: null, appliedHourlyRate: null,
+      });
+      continue;
+    }
     const record = attendance.find(a => a.attendance_date === dateStr);
     const leave = leaves.find(l => l.attendance_date === dateStr);
     const hasLeave = !!leave;
@@ -141,23 +152,16 @@ function calculateFulltime(
     dailyDetails.push(daily);
   }
 
-  // 正社員は月給制のため日割りしない（出勤日数が所定未満でも常に満額支給）
-  const isPartialMonth = false;
+  const tenureDays = scheduledDaysInPeriod - outOfTenureDays;
+  const isPartialMonth = outOfTenureDays > 0;
 
   let baseSalary = emp.base_salary, positionAllowance = emp.position_allowance;
   let qualificationAllowance = emp.qualification_allowance;
-  let commuteAllowance = emp.commute_allowance, dependentAllowance = emp.dependent_allowance;
+  let commuteAllowance = isPartialMonth
+    ? Math.round(emp.commute_allowance / AVERAGE_WORK_DAYS * tenureDays)
+    : emp.commute_allowance;
+  let dependentAllowance = emp.dependent_allowance;
   let fixedOvertimeAmount = emp.fixed_overtime_amount;
-
-  if (isPartialMonth) {
-    const ratio = workDays / AVERAGE_WORK_DAYS;
-    baseSalary = Math.round(emp.base_salary * ratio);
-    positionAllowance = Math.round(emp.position_allowance * ratio);
-    qualificationAllowance = Math.round(emp.qualification_allowance * ratio);
-    dependentAllowance = Math.round(emp.dependent_allowance * ratio);
-    fixedOvertimeAmount = Math.round(emp.fixed_overtime_amount * ratio);
-    commuteAllowance = Math.round(emp.commute_allowance / AVERAGE_WORK_DAYS * workDays);
-  }
 
   const overtimeBase = emp.base_salary + emp.position_allowance + emp.qualification_allowance;
   const overtimeUnitPrice = monthlyStandardHours > 0
@@ -169,17 +173,18 @@ function calculateFulltime(
 
   const absenceBase = emp.base_salary + emp.position_allowance + emp.qualification_allowance
     + emp.fixed_overtime_amount + emp.dependent_allowance;
-  const absenceDeduction = absenceDays > 0
-    ? Math.round(absenceBase / AVERAGE_WORK_DAYS * absenceDays) : 0;
+  const totalDeductionDays = outOfTenureDays + absenceDays;
+  const absenceDeduction = totalDeductionDays > 0
+    ? Math.round(absenceBase / AVERAGE_WORK_DAYS * totalDeductionDays) : 0;
 
   const lateEarlyDeduction = totalLateEarlyMinutes > 0 && monthlyStandardHours > 0
     ? Math.round(absenceBase / monthlyStandardHours / 60 * totalLateEarlyMinutes) : 0;
 
-  const totalAllowances = baseSalary + positionAllowance + qualificationAllowance
-    + commuteAllowance + dependentAllowance + fixedOvertimeAmount
-    + excessOvertimeAmount + adjustmentAmount;
-  const totalDeduction = Math.min(absenceDeduction + lateEarlyDeduction, totalAllowances);
-  const grossTotal = totalAllowances - totalDeduction;
+  const { grossTotal, cappedDeduction: totalDeduction } = calcGrossTotal(
+    baseSalary, positionAllowance, qualificationAllowance,
+    commuteAllowance, dependentAllowance, fixedOvertimeAmount,
+    excessOvertimeAmount, adjustmentAmount, absenceDeduction + lateEarlyDeduction,
+  );
 
   return {
     employee_id: emp.employee_id, employee_code: emp.employee_code,
@@ -354,6 +359,17 @@ function parseTime(timeStr: string): number | null {
   if (timeStr.includes('T')) { const d = new Date(timeStr); return d.getHours() * 60 + d.getMinutes(); }
   const parts = timeStr.split(':');
   return parts.length < 2 ? null : parseInt(parts[0]) * 60 + parseInt(parts[1]);
+}
+
+function calcGrossTotal(
+  baseSalary: number, positionAllowance: number, qualificationAllowance: number,
+  commuteAllowance: number, dependentAllowance: number, fixedOvertime: number,
+  overtimePay: number, adjustmentAllowance: number, rawDeduction: number,
+): { grossTotal: number; cappedDeduction: number } {
+  const totalAllowances = baseSalary + positionAllowance + qualificationAllowance
+    + commuteAllowance + dependentAllowance + fixedOvertime + overtimePay + adjustmentAllowance;
+  const cappedDeduction = Math.min(rawDeduction, totalAllowances);
+  return { grossTotal: totalAllowances - cappedDeduction, cappedDeduction };
 }
 
 function createZeroResult(emp: PayrollConfig, yearMonth: string, fp: { start: string; end: string }, pp: { start: string; end: string }): PayrollResult {
@@ -556,6 +572,7 @@ export async function savePayrollResults(results: PayrollResult[], yearMonth: st
       const fields = preserveMap.get(r.employee_id)!;
       for (const [field, value] of fields) {
         if (!(field in row)) continue;
+        if (field === 'absence_deduction') continue;
         if (r.employment_type !== 'パート' && FULLTIME_CONFIG_FIELDS.has(field)) continue;
         row[field] = value;
       }
@@ -563,10 +580,12 @@ export async function savePayrollResults(results: PayrollResult[], yearMonth: st
         row.total_payment = (row.base_salary || 0) + (row.commute_allowance || 0)
           + (row.adjustment_allowance || 0) + (row.paid_leave_amount || 0);
       } else {
-        row.total_payment = (row.base_salary || 0) + (row.position_allowance || 0)
-          + (row.qualification_allowance || 0) + (row.commute_allowance || 0)
-          + (row.dependent_allowance || 0) + (row.fixed_overtime || 0)
-          + (row.overtime_pay || 0) + (row.adjustment_allowance || 0) - (row.absence_deduction || 0);
+        const { grossTotal } = calcGrossTotal(
+          row.base_salary || 0, row.position_allowance || 0, row.qualification_allowance || 0,
+          row.commute_allowance || 0, row.dependent_allowance || 0, row.fixed_overtime || 0,
+          row.overtime_pay || 0, row.adjustment_allowance || 0, row.absence_deduction || 0,
+        );
+        row.total_payment = grossTotal;
       }
     }
 
