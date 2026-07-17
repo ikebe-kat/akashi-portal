@@ -99,11 +99,6 @@ function calculateFulltime(
     const hasLeave = !!leave;
     const isLeaveDay = leaveDaysSet.has(leaveKey(emp.employee_id, dateStr));
 
-    if (emp.hire_date && dateStr < emp.hire_date) {
-      dailyDetails.push({ date: dateStr, dayOfWeek, clockIn: null, clockOut: null, workMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, isHoliday, isAbsent: false, hasLeave: false, leaveType: null, hasWarning: false, warningMessage: null, appliedHourlyRate: null });
-      continue;
-    }
-
     const daily: DailyCalc = {
       date: dateStr, dayOfWeek,
       clockIn: record?.punch_in ?? null, clockOut: record?.punch_out ?? null,
@@ -137,7 +132,7 @@ function calculateFulltime(
       daily.hasWarning = true;
       daily.warningMessage = `${dateStr}: 退勤打刻漏れ`;
       warnings.push(daily.warningMessage);
-    } else {
+    } else if (record?.reason?.includes('欠勤') || isLeaveDay) {
       daily.isAbsent = true; absenceDays++;
     }
     if (!isHoliday && record) {
