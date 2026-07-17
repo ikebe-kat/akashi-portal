@@ -30,6 +30,9 @@ export interface PayrollConfig {
   hourly_rate_saturday: number | null;
   hourly_rate_sunday: number | null;
 
+  // 調整手当（config実額）
+  adjustment_allowance: number;
+
   // 通勤手当（パート日割用）
   commute_allowance_daily_divisor: number; // 21固定
   commute_daily_amount: number | null; // payroll_commute_master.daily_amount（パート日割）

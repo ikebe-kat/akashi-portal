@@ -63,7 +63,9 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
     const empAttendance = attendance.filter(a => a.employee_id === emp.employee_id);
     const empLeaves = leaveRequests.filter(l => l.employee_id === emp.employee_id);
     const existingAdj = existingPayroll.find(p => p.employee_id === emp.employee_id);
-    const adjustmentAmount = mode === 'full' ? 0 : (existingAdj?.adjustment_allowance ?? 0);
+    const adjustmentAmount = mode === 'full'
+      ? emp.adjustment_allowance
+      : (existingAdj?.adjustment_allowance ?? emp.adjustment_allowance);
 
     if (isParttime) {
       results.push(calculateParttime(emp, period, empAttendance, empLeaves, yearMonth, adjustmentAmount, leaveDaysSet));
@@ -390,7 +392,7 @@ async function fetchEmployeesWithConfig(broadEarliestStart: string): Promise<Pay
   const { data, error } = await supabase
     .from('employees')
     .select(`id, employee_code, full_name, employment_type, store_id, is_active, requires_punch, holiday_calendar, hire_date, resigned_at,
-      employee_payroll_config ( rank, base_salary_override, position_allowance_override, qualifications, dependents_count, commute_distance_km, fixed_overtime_amount, hourly_wage_weekday, hourly_wage_saturday, hourly_wage_sunday )`)
+      employee_payroll_config ( rank, base_salary_override, position_allowance_override, qualifications, dependents_count, commute_distance_km, fixed_overtime_amount, hourly_wage_weekday, hourly_wage_saturday, hourly_wage_sunday, adjustment_allowance, commute_allowance_override, qualification_allowance_override )`)
     .eq('company_id', AKASHI_COMPANY_ID).or(`is_active.eq.true,resigned_at.gte.${broadEarliestStart}`);
   if (error) throw new Error(`従業員データ取得エラー: ${error.message}`);
 
@@ -422,8 +424,10 @@ async function fetchEmployeesWithConfig(broadEarliestStart: string): Promise<Pay
       hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null,
       resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null,
       base_salary: c.base_salary_override || 0, position_allowance: c.position_allowance_override || 0,
-      qualification_allowance: calcQual(c.qualifications), commute_allowance: calcCommute(c.commute_distance_km),
+      qualification_allowance: c.qualification_allowance_override ?? calcQual(c.qualifications),
+      commute_allowance: c.commute_allowance_override ?? calcCommute(c.commute_distance_km),
       dependent_allowance: calcDep(c.dependents_count), fixed_overtime_amount: c.fixed_overtime_amount || 0,
+      adjustment_allowance: c.adjustment_allowance ?? 0,
       fixed_overtime_hours: 25, salary_grade: c.rank || null,
       hourly_rate_weekday: c.hourly_wage_weekday || null, hourly_rate_saturday: c.hourly_wage_saturday || null,
       hourly_rate_sunday: c.hourly_wage_sunday || null, commute_allowance_daily_divisor: PART_COMMUTE_DIVISOR,
