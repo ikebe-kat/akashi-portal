@@ -18,6 +18,11 @@ const AVERAGE_WORK_DAYS = 19.66;        // 日割計算用（月平均所定労�
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数
 const DEPENDENT_ALLOWANCE_PER_PERSON = 5000; // 扶養手当（1人あたり/月）
 const EXCLUDE_CODES = ['D02', 'D18', 'D49', 'D67']; // KAT WORLD側で給与処理
+// 正社員の固定支給項目（payroll_monthly上の列名）。config が唯一の正であり preserve 対象外
+const FULLTIME_CONFIG_FIELDS = new Set([
+  'base_salary', 'position_allowance', 'qualification_allowance',
+  'commute_allowance', 'dependent_allowance', 'fixed_overtime', 'adjustment_allowance',
+]);
 
 // ============================================
 // メイン: 全従業員の給与計算
@@ -63,9 +68,9 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
     const empAttendance = attendance.filter(a => a.employee_id === emp.employee_id);
     const empLeaves = leaveRequests.filter(l => l.employee_id === emp.employee_id);
     const existingAdj = existingPayroll.find(p => p.employee_id === emp.employee_id);
-    const adjustmentAmount = mode === 'full'
-      ? emp.adjustment_allowance
-      : (existingAdj?.adjustment_allowance ?? emp.adjustment_allowance);
+    const adjustmentAmount = isParttime
+      ? (mode === 'full' ? 0 : (existingAdj?.adjustment_allowance ?? 0))
+      : emp.adjustment_allowance;
 
     if (isParttime) {
       results.push(calculateParttime(emp, period, empAttendance, empLeaves, yearMonth, adjustmentAmount, leaveDaysSet));
@@ -563,7 +568,9 @@ export async function savePayrollResults(results: PayrollResult[], yearMonth: st
     if (preserveMap?.has(r.employee_id)) {
       const fields = preserveMap.get(r.employee_id)!;
       for (const [field, value] of fields) {
-        if (field in row) row[field] = value;
+        if (!(field in row)) continue;
+        if (r.employment_type !== 'パート' && FULLTIME_CONFIG_FIELDS.has(field)) continue;
+        row[field] = value;
       }
       if (r.employment_type === 'パート') {
         row.total_payment = (row.base_salary || 0) + (row.commute_allowance || 0)
