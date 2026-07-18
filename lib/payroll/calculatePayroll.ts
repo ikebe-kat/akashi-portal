@@ -4,6 +4,7 @@
 import { supabase } from '@/lib/supabase';
 import { AKASHI_COMPANY_ID } from '@/lib/constants';
 import { fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
+import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS } from './configFields';
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -438,26 +439,36 @@ async function fetchEmployeesWithConfig(broadEarliestStart: string, periodEnd: s
     return t?.daily_amount != null ? Number(t.daily_amount) : null;
   };
   const calcQual = (q: any) => !q || !Array.isArray(q) ? 0 : q.reduce((s: number, n: string) => s + (qualMap.get(n) || 0), 0);
-  const calcDep = (c: any) => c.dependent_allowance_override != null
-    ? Number(c.dependent_allowance_override)
-    : (c.dependents_count || 0) * DEPENDENT_ALLOWANCE_PER_PERSON;
+
+  const resolveField = (c: any, field: typeof FT_CONFIG_FIELDS[number]): number => {
+    const v = c[field.configColumn];
+    if (v != null) return Number(v);
+    if (field.fallback === 'qualifications') return calcQual(c.qualifications);
+    if (field.fallback === 'commute_distance') return calcCommute(c.commute_distance_km);
+    if (field.fallback === 'dependents_count') return (c.dependents_count || 0) * DEPENDENT_ALLOWANCE_PER_PERSON;
+    return 0;
+  };
 
   return (data || []).map((e: any) => {
     const c = pickEffectiveConfig(e.employee_payroll_config, broadEarliestStart, periodEnd);
+    const ftVals: any = {};
+    for (const f of FT_CONFIG_FIELDS) ftVals[f.uiField] = resolveField(c, f);
+    const ptVals: any = {};
+    for (const f of PT_CONFIG_FIELDS) ptVals[f.uiField] = c[f.configColumn] || null;
     return {
       employee_id: e.id, employee_code: e.employee_code, employee_name: e.full_name,
       employment_type: e.employment_type, store_id: e.store_id, is_active: e.is_active,
       requires_punch: e.requires_punch ?? true, holiday_calendar: e.holiday_calendar || null,
       hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : null,
       resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null,
-      base_salary: c.base_salary_override || 0, position_allowance: c.position_allowance_override || 0,
-      qualification_allowance: c.qualification_allowance_override ?? calcQual(c.qualifications),
-      commute_allowance: c.commute_allowance_override ?? calcCommute(c.commute_distance_km),
-      dependent_allowance: calcDep(c), fixed_overtime_amount: c.fixed_overtime_amount || 0,
-      adjustment_allowance: c.adjustment_allowance ?? 0,
+      base_salary: ftVals.base_salary, position_allowance: ftVals.position_allowance,
+      qualification_allowance: ftVals.qualification_allowance,
+      commute_allowance: ftVals.commute_allowance,
+      dependent_allowance: ftVals.dependent_allowance, fixed_overtime_amount: ftVals.fixed_overtime,
+      adjustment_allowance: ftVals.adjustment_allowance,
       fixed_overtime_hours: 25, salary_grade: c.rank || null,
-      hourly_rate_weekday: c.hourly_wage_weekday || null, hourly_rate_saturday: c.hourly_wage_saturday || null,
-      hourly_rate_sunday: c.hourly_wage_sunday || null, commute_allowance_daily_divisor: PART_COMMUTE_DIVISOR,
+      hourly_rate_weekday: ptVals.hourly_rate_weekday, hourly_rate_saturday: ptVals.hourly_rate_saturday,
+      hourly_rate_sunday: ptVals.hourly_rate_sunday, commute_allowance_daily_divisor: PART_COMMUTE_DIVISOR,
       commute_daily_amount: calcCommuteDailyRate(c.commute_distance_km),
       commute_distance_km: c.commute_distance_km != null ? Number(c.commute_distance_km) : null,
     };
