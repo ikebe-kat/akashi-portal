@@ -38,6 +38,9 @@ BEGIN
     v_change_logs := r->'change_logs';
 
     -- (a) payroll_monthly を UPDATE
+    IF jsonb_typeof(v_payroll_fields) != 'object' THEN
+      RAISE EXCEPTION 'payroll_fields must be an object (employee_id=%)', v_employee_id;
+    END IF;
     UPDATE payroll_monthly
     SET base_salary = COALESCE((v_payroll_fields->>'base_salary')::numeric, base_salary),
         position_allowance = COALESCE((v_payroll_fields->>'position_allowance')::numeric, position_allowance),
@@ -62,7 +65,7 @@ BEGIN
     END IF;
 
     -- (b) change_logs INSERT
-    IF v_change_logs IS NOT NULL AND jsonb_array_length(v_change_logs) > 0 THEN
+    IF jsonb_typeof(v_change_logs) = 'array' AND jsonb_array_length(v_change_logs) > 0 THEN
       FOR v_log IN SELECT * FROM jsonb_array_elements(v_change_logs)
       LOOP
         INSERT INTO payroll_change_logs (payroll_monthly_id, employee_id, changed_by, field_name, old_value, new_value)
@@ -72,7 +75,7 @@ BEGIN
     END IF;
 
     -- (c) config 履歴管理（変更がある場合のみ）
-    IF v_config_changes IS NOT NULL AND v_config_changes != '{}'::jsonb THEN
+    IF jsonb_typeof(v_config_changes) = 'object' AND v_config_changes != '{}'::jsonb THEN
       -- effective_from を算出（雇用区分別）
       v_prev_month := CASE WHEN v_m = 1 THEN 12 ELSE v_m - 1 END;
       v_prev_year := CASE WHEN v_m = 1 THEN v_y - 1 ELSE v_y END;
