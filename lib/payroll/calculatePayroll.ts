@@ -90,6 +90,7 @@ function calculateFulltime(
   const dailyDetails: DailyCalc[] = [];
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, absenceDays = 0, workDays = 0;
   let paidLeaveDays = 0, totalLateEarlyMinutes = 0, outOfTenureDays = 0;
+  const lateEarlyEvents: { date: string; minutes: number }[] = [];
   const warnings: string[] = [];
   const dates = getDateRange(period.start, period.end);
   const scheduledDaysInPeriod = dates.filter(d => !holidays.has(d)).length;
@@ -149,7 +150,11 @@ function calculateFulltime(
       daily.isAbsent = true; absenceDays++;
     }
     if (!isHoliday && record) {
-      totalLateEarlyMinutes += (record.late_minutes || 0) + (record.early_leave_minutes || 0);
+      const lateMins = record.late_minutes || 0;
+      const earlyMins = record.early_leave_minutes || 0;
+      totalLateEarlyMinutes += lateMins + earlyMins;
+      if (lateMins > 0) lateEarlyEvents.push({ date: dateStr, minutes: lateMins });
+      if (earlyMins > 0) lateEarlyEvents.push({ date: dateStr, minutes: earlyMins });
     }
     dailyDetails.push(daily);
   }
@@ -180,8 +185,10 @@ function calculateFulltime(
   const absenceDeduction = totalDeductionDays > 0
     ? Math.round(absenceBase / deductionDenominator * totalDeductionDays) : 0;
 
-  const lateEarlyDeduction = totalLateEarlyMinutes > 0 && monthlyStandardHours > 0
-    ? Math.round(absenceBase / monthlyStandardHours / 60 * totalLateEarlyMinutes) : 0;
+  const deductibleLateEarlyMinutes = lateEarlyEvents.length > 1
+    ? totalLateEarlyMinutes - lateEarlyEvents[0].minutes : 0;
+  const lateEarlyDeduction = deductibleLateEarlyMinutes > 0 && monthlyStandardHours > 0
+    ? Math.round(absenceBase / monthlyStandardHours / 60 * deductibleLateEarlyMinutes) : 0;
 
   const { grossTotal, cappedDeduction: totalDeduction } = calcGrossTotal(
     baseSalary, positionAllowance, qualificationAllowance,
