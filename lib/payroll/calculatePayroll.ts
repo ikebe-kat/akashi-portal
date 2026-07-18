@@ -318,7 +318,7 @@ function calculateParttime(
 // ============================================
 // ユーティリティ
 // ============================================
-function getFulltimePeriod(yearMonth: string) {
+export function getFulltimePeriod(yearMonth: string) {
   const [y, m] = yearMonth.split('-').map(Number);
   const prevMonth = m === 1 ? 12 : m - 1;
   const prevYear = m === 1 ? y - 1 : y;
@@ -326,7 +326,7 @@ function getFulltimePeriod(yearMonth: string) {
   return { start: `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`, end: `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}` };
 }
 
-function getParttimePeriod(yearMonth: string) {
+export function getParttimePeriod(yearMonth: string) {
   const [y, m] = yearMonth.split('-').map(Number);
   const prevMonth = m === 1 ? 12 : m - 1;
   const prevYear = m === 1 ? y - 1 : y;

@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { T, AKASHI_COMPANY_ID } from "@/lib/constants";
-import { calculateAll, savePayrollResults, getChangeLogCount } from "@/lib/payroll/calculatePayroll";
+import { calculateAll, savePayrollResults, getChangeLogCount, getFulltimePeriod, getParttimePeriod } from "@/lib/payroll/calculatePayroll";
 import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS, buildUiToConfigMap } from "@/lib/payroll/configFields";
 
 // AKASHI_COMPANY_ID は lib/constants.ts からimport済み
@@ -281,9 +281,13 @@ export default function PayrollSub({ employee }: { employee: any }) {
         if (!logIns || logIns.length === 0) { setError("給与データは保存しましたが変更履歴が0件しか記録できませんでした（権限設定の可能性）"); await loadData(); return; }
       }
       // config に「毎月変わらない項目」を保存（履歴管理）
-      const [ty, tm] = yearMonth.split("-").map(Number);
-      const effectiveFrom = `${ty}-${String(tm).padStart(2, "0")}-01`;
-      const effectiveToPrev = new Date(ty, tm - 1, 0).toISOString().slice(0, 10);
+      const ftPeriod = getFulltimePeriod(yearMonth);
+      const ptPeriod = getParttimePeriod(yearMonth);
+      const prevDay = (dateStr: string) => {
+        const d = new Date(dateStr + "T00:00:00");
+        d.setDate(d.getDate() - 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      };
       for (const r of rows) {
         const orig = originalRows.find((o: any) => o.id === r.id);
         if (!orig) continue;
@@ -296,6 +300,8 @@ export default function PayrollSub({ employee }: { employee: any }) {
           }
         }
         if (Object.keys(updates).length === 0) continue;
+        const effectiveFrom = isPt ? ptPeriod.start : ftPeriod.start;
+        const effectiveToPrev = prevDay(effectiveFrom);
         const { data: sameMonth } = await supabase.from("employee_payroll_config")
           .select("id").eq("employee_id", r.employee_id).eq("effective_from", effectiveFrom).limit(1);
         if (sameMonth && sameMonth.length > 0) {
