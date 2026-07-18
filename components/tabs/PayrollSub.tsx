@@ -279,6 +279,44 @@ export default function PayrollSub({ employee }: { employee: any }) {
         if (logErr) { setError("給与データは保存しましたが、変更履歴の記録に失敗しました: " + logErr.message); await loadData(); return; }
         if (!logIns || logIns.length === 0) { setError("給与データは保存しましたが変更履歴が0件しか記録できませんでした（権限設定の可能性）"); await loadData(); return; }
       }
+      // config に「毎月変わらない項目」を保存
+      const FT_CONFIG_MAP: Record<string, string> = {
+        base_salary: "base_salary_override", position_allowance: "position_allowance_override",
+        qualification_allowance: "qualification_allowance_override", commute_allowance: "commute_allowance_override",
+        dependent_allowance: "dependent_allowance_override", fixed_overtime: "fixed_overtime_amount",
+        adjustment_allowance: "adjustment_allowance",
+      };
+      const PT_CONFIG_MAP: Record<string, string> = {
+        hourly_rate_weekday: "hourly_wage_weekday", hourly_rate_saturday: "hourly_wage_saturday",
+        hourly_rate_sunday: "hourly_wage_sunday",
+      };
+      const [ty, tm] = yearMonth.split("-").map(Number);
+      const effectiveFrom = `${ty}-${String(tm).padStart(2, "0")}-01`;
+      for (const r of rows) {
+        const orig = originalRows.find((o: any) => o.id === r.id);
+        if (!orig) continue;
+        const isPt = r.employment_type === "パート";
+        const configMap = isPt ? PT_CONFIG_MAP : FT_CONFIG_MAP;
+        const updates: Record<string, number> = {};
+        for (const [field, col] of Object.entries(configMap)) {
+          if ((orig[field] ?? 0) !== (r[field] ?? 0)) {
+            updates[col] = r[field] ?? 0;
+          }
+        }
+        if (Object.keys(updates).length === 0) continue;
+        const { data: existing } = await supabase.from("employee_payroll_config")
+          .select("id").eq("employee_id", r.employee_id).limit(1);
+        if (existing && existing.length > 0) {
+          const { error: ue } = await supabase.from("employee_payroll_config")
+            .update({ ...updates, updated_at: new Date().toISOString() })
+            .eq("id", existing[0].id);
+          if (ue) throw new Error(`config更新エラー(${r.employee_code}): ${ue.message}`);
+        } else {
+          const { error: ie } = await supabase.from("employee_payroll_config")
+            .insert({ employee_id: r.employee_id, effective_from: effectiveFrom, ...updates, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+          if (ie) throw new Error(`config作成エラー(${r.employee_code}): ${ie.message}`);
+        }
+      }
       setSuccess(`保存しました${changeLogs.length > 0 ? `（${changeLogs.length}件の変更を記録）` : ""}`);
       await loadData();
     } catch (e: any) { setError(e.message); }

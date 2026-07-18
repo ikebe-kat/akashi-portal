@@ -34,7 +34,8 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
   const parttimePeriod = getParttimePeriod(yearMonth);
 
   const broadEarliestStart = fulltimePeriod.start < parttimePeriod.start ? fulltimePeriod.start : parttimePeriod.start;
-  const employees = await fetchEmployeesWithConfig(broadEarliestStart);
+  const broadLatestEnd = fulltimePeriod.end > parttimePeriod.end ? fulltimePeriod.end : parttimePeriod.end;
+  const employees = await fetchEmployeesWithConfig(broadEarliestStart, broadLatestEnd);
   const holidaysByType = await fetchHolidays(fulltimePeriod.start, fulltimePeriod.end);
 
   const allStart = broadEarliestStart;
@@ -401,11 +402,22 @@ function createZeroResult(emp: PayrollConfig, yearMonth: string, fp: { start: st
 // ============================================
 interface LeaveRecord { employee_id: string; attendance_date: string; reason: string; }
 
-async function fetchEmployeesWithConfig(broadEarliestStart: string): Promise<PayrollConfig[]> {
+function pickEffectiveConfig(configs: any[], periodStart: string, periodEnd: string): any {
+  const valid = (configs || []).filter((c: any) => {
+    if (c.effective_from && c.effective_from > periodEnd) return false;
+    if (c.effective_to && c.effective_to < periodStart) return false;
+    return true;
+  });
+  if (valid.length === 0) return configs?.[0] || {};
+  valid.sort((a: any, b: any) => (b.effective_from || '').localeCompare(a.effective_from || ''));
+  return valid[0];
+}
+
+async function fetchEmployeesWithConfig(broadEarliestStart: string, periodEnd: string): Promise<PayrollConfig[]> {
   const { data, error } = await supabase
     .from('employees')
     .select(`id, employee_code, full_name, employment_type, store_id, is_active, requires_punch, holiday_calendar, hire_date, resigned_at,
-      employee_payroll_config ( rank, base_salary_override, position_allowance_override, qualifications, dependents_count, commute_distance_km, fixed_overtime_amount, hourly_wage_weekday, hourly_wage_saturday, hourly_wage_sunday, adjustment_allowance, commute_allowance_override, qualification_allowance_override )`)
+      employee_payroll_config ( rank, base_salary_override, position_allowance_override, qualifications, dependents_count, commute_distance_km, fixed_overtime_amount, hourly_wage_weekday, hourly_wage_saturday, hourly_wage_sunday, adjustment_allowance, commute_allowance_override, qualification_allowance_override, dependent_allowance_override, effective_from, effective_to )`)
     .eq('company_id', AKASHI_COMPANY_ID).or(`is_active.eq.true,resigned_at.gte.${broadEarliestStart}`);
   if (error) throw new Error(`従業員データ取得エラー: ${error.message}`);
 
@@ -426,10 +438,12 @@ async function fetchEmployeesWithConfig(broadEarliestStart: string): Promise<Pay
     return t?.daily_amount != null ? Number(t.daily_amount) : null;
   };
   const calcQual = (q: any) => !q || !Array.isArray(q) ? 0 : q.reduce((s: number, n: string) => s + (qualMap.get(n) || 0), 0);
-  const calcDep = (c: number | null) => (c || 0) * DEPENDENT_ALLOWANCE_PER_PERSON;
+  const calcDep = (c: any) => c.dependent_allowance_override != null
+    ? Number(c.dependent_allowance_override)
+    : (c.dependents_count || 0) * DEPENDENT_ALLOWANCE_PER_PERSON;
 
   return (data || []).map((e: any) => {
-    const c = e.employee_payroll_config?.[0] || {};
+    const c = pickEffectiveConfig(e.employee_payroll_config, broadEarliestStart, periodEnd);
     return {
       employee_id: e.id, employee_code: e.employee_code, employee_name: e.full_name,
       employment_type: e.employment_type, store_id: e.store_id, is_active: e.is_active,
@@ -439,7 +453,7 @@ async function fetchEmployeesWithConfig(broadEarliestStart: string): Promise<Pay
       base_salary: c.base_salary_override || 0, position_allowance: c.position_allowance_override || 0,
       qualification_allowance: c.qualification_allowance_override ?? calcQual(c.qualifications),
       commute_allowance: c.commute_allowance_override ?? calcCommute(c.commute_distance_km),
-      dependent_allowance: calcDep(c.dependents_count), fixed_overtime_amount: c.fixed_overtime_amount || 0,
+      dependent_allowance: calcDep(c), fixed_overtime_amount: c.fixed_overtime_amount || 0,
       adjustment_allowance: c.adjustment_allowance ?? 0,
       fixed_overtime_hours: 25, salary_grade: c.rank || null,
       hourly_rate_weekday: c.hourly_wage_weekday || null, hourly_rate_saturday: c.hourly_wage_saturday || null,
