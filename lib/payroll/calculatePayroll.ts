@@ -14,7 +14,7 @@ import type {
 
 // AKASHI_COMPANY_ID は lib/constants.ts からimport済み
 const OVERTIME_THRESHOLD_MINUTES = 480; // 日次8時間 = 480分
-const AVERAGE_WORK_DAYS = 19.66;        // 日割計算用（月平均所定労働日数）
+const AVERAGE_WORK_DAYS = 19.66;        // 日割分母の下限（月平均所定労働日数）
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数
 const DEPENDENT_ALLOWANCE_PER_PERSON = 5000; // 扶養手当（1人あたり/月）
 const EXCLUDE_CODES = ['D02', 'D18', 'D49', 'D67']; // KAT WORLD側で給与処理
@@ -157,8 +157,9 @@ function calculateFulltime(
 
   let baseSalary = emp.base_salary, positionAllowance = emp.position_allowance;
   let qualificationAllowance = emp.qualification_allowance;
+  const deductionDenominator = getDeductionDenominator(scheduledDaysInPeriod);
   let commuteAllowance = isPartialMonth
-    ? Math.round(emp.commute_allowance / AVERAGE_WORK_DAYS * tenureDays)
+    ? Math.round(emp.commute_allowance / deductionDenominator * tenureDays)
     : emp.commute_allowance;
   let dependentAllowance = emp.dependent_allowance;
   let fixedOvertimeAmount = emp.fixed_overtime_amount;
@@ -175,7 +176,7 @@ function calculateFulltime(
     + emp.fixed_overtime_amount + emp.dependent_allowance;
   const totalDeductionDays = outOfTenureDays + absenceDays;
   const absenceDeduction = totalDeductionDays > 0
-    ? Math.round(absenceBase / AVERAGE_WORK_DAYS * totalDeductionDays) : 0;
+    ? Math.round(absenceBase / deductionDenominator * totalDeductionDays) : 0;
 
   const lateEarlyDeduction = totalLateEarlyMinutes > 0 && monthlyStandardHours > 0
     ? Math.round(absenceBase / monthlyStandardHours / 60 * totalLateEarlyMinutes) : 0;
@@ -328,6 +329,10 @@ function getParttimePeriod(yearMonth: string) {
   const prevMonth = m === 1 ? 12 : m - 1;
   const prevYear = m === 1 ? y - 1 : y;
   return { start: `${prevYear}-${String(prevMonth).padStart(2, '0')}-11`, end: `${y}-${String(m).padStart(2, '0')}-10` };
+}
+
+function getDeductionDenominator(scheduledDaysInPeriod: number): number {
+  return Math.max(scheduledDaysInPeriod, AVERAGE_WORK_DAYS);
 }
 
 function calculateMonthlyStandardHours(holidays: Set<string>, period: { start: string; end: string }): number {
