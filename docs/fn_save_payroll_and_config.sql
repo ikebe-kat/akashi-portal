@@ -111,7 +111,7 @@ BEGIN
         ORDER BY effective_from DESC
         LIMIT 1;
 
-        IF v_old_row.id IS NOT NULL THEN
+        IF FOUND THEN
           -- 旧行の effective_to を更新
           UPDATE employee_payroll_config
           SET effective_to = v_effective_to_prev, updated_at = now()
@@ -124,6 +124,7 @@ BEGIN
           -- 変更分を上書き
           v_new_row := v_new_row || v_config_changes;
           v_new_row := v_new_row || jsonb_build_object(
+            'id', gen_random_uuid(),
             'effective_from', v_effective_from,
             'effective_to', null,
             'created_at', now(),
@@ -135,6 +136,7 @@ BEGIN
         ELSE
           -- 旧行なし（新入社員）→ 変更分だけで INSERT
           v_new_row := v_config_changes || jsonb_build_object(
+            'id', gen_random_uuid(),
             'employee_id', v_employee_id,
             'employment_category', CASE WHEN v_employment_type = 'パート' THEN 'hourly' ELSE 'monthly' END,
             'effective_from', v_effective_from,
