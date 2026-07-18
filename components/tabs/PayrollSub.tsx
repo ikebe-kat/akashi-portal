@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { T, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { calculateAll, savePayrollResults, getChangeLogCount } from "@/lib/payroll/calculatePayroll";
 import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS, buildUiToConfigMap } from "@/lib/payroll/configFields";
+import Dialog from "@/components/ui/Dialog";
 
 // AKASHI_COMPANY_ID は lib/constants.ts からimport済み
 
@@ -115,6 +116,7 @@ export default function PayrollSub({ employee }: { employee: any }) {
   const [showHistory, setShowHistory] = useState(false);
   const [historyLogs, setHistoryLogs] = useState<any[]>([]);
   const [historyFilter, setHistoryFilter] = useState("all"); // employee_code or "all"
+  const [saveDialogMsg, setSaveDialogMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
   const ymOptions = generateYearMonthOptions();
   const periods = getPeriods(yearMonth);
@@ -290,9 +292,9 @@ export default function PayrollSub({ employee }: { employee: any }) {
         p_rows: rpcRows,
       });
       if (rpcErr) throw new Error(rpcErr.message);
-      setSuccess(`保存しました${totalChanges > 0 ? `（${totalChanges}件の変更を記録）` : ""}`);
+      setSaveDialogMsg({ text: `保存しました${totalChanges > 0 ? `（${totalChanges}件の変更を記録）` : ""}`, isError: false });
       await loadData();
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setSaveDialogMsg({ text: `保存に失敗しました:\n${e.message}`, isError: true }); }
     finally { setSaving(false); }
   };
 
@@ -594,6 +596,15 @@ export default function PayrollSub({ employee }: { employee: any }) {
             )}
           </div>
         </div>
+      )}
+
+      {/* 保存結果ダイアログ */}
+      {saveDialogMsg && (
+        <Dialog
+          message={saveDialogMsg.text}
+          confirmColor={saveDialogMsg.isError ? "#d32f2f" : T.primary}
+          onOk={() => setSaveDialogMsg(null)}
+        />
       )}
     </div>
   );
