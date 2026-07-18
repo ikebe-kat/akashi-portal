@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { T, AKASHI_COMPANY_ID } from "@/lib/constants";
-import { calculateAll, savePayrollResults, getChangeLogCount, getFulltimePeriod, getParttimePeriod } from "@/lib/payroll/calculatePayroll";
+import { calculateAll, savePayrollResults, getChangeLogCount } from "@/lib/payroll/calculatePayroll";
 import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS, buildUiToConfigMap } from "@/lib/payroll/configFields";
 
 // AKASHI_COMPANY_ID は lib/constants.ts からimport済み
@@ -227,99 +227,70 @@ export default function PayrollSub({ employee }: { employee: any }) {
   const handleSaveAll = async () => {
     setSaving(true); setError(null); setSuccess(null);
     try {
-      const changeLogs: any[] = [];
+      const rpcRows: any[] = [];
+      let totalChanges = 0;
       for (const r of rows) {
         const orig = originalRows.find((o: any) => o.id === r.id);
         const isPt = r.employment_type === "パート";
-        const uf: any = {
+        const payrollFields: any = {
           total_payment: r.total_payment,
           adjustment_allowance: r.adjustment_allowance || 0,
-          calculated_at: new Date().toISOString(),
         };
         if (isPt) {
-          uf.hourly_weekday_minutes = r.hourly_weekday_minutes || 0;
-          uf.hourly_saturday_minutes = r.hourly_saturday_minutes || 0;
-          uf.hourly_sunday_minutes = r.hourly_sunday_minutes || 0;
-          uf.base_salary = r.base_salary;
-          uf.commute_allowance = r.commute_allowance || 0;
-          uf.paid_leave_amount = r.paid_leave_amount || 0;
+          payrollFields.hourly_weekday_minutes = r.hourly_weekday_minutes || 0;
+          payrollFields.hourly_saturday_minutes = r.hourly_saturday_minutes || 0;
+          payrollFields.hourly_sunday_minutes = r.hourly_sunday_minutes || 0;
+          payrollFields.base_salary = r.base_salary;
+          payrollFields.commute_allowance = r.commute_allowance || 0;
+          payrollFields.paid_leave_amount = r.paid_leave_amount || 0;
         } else {
-          uf.base_salary = r.base_salary || 0;
-          uf.position_allowance = r.position_allowance || 0;
-          uf.qualification_allowance = r.qualification_allowance || 0;
-          uf.commute_allowance = r.commute_allowance || 0;
-          uf.dependent_allowance = r.dependent_allowance || 0;
-          uf.fixed_overtime = r.fixed_overtime || 0;
-          uf.overtime_pay = r.overtime_pay || 0;
-          uf.absence_deduction = r.absence_deduction || 0;
+          payrollFields.base_salary = r.base_salary || 0;
+          payrollFields.position_allowance = r.position_allowance || 0;
+          payrollFields.qualification_allowance = r.qualification_allowance || 0;
+          payrollFields.commute_allowance = r.commute_allowance || 0;
+          payrollFields.dependent_allowance = r.dependent_allowance || 0;
+          payrollFields.fixed_overtime = r.fixed_overtime || 0;
+          payrollFields.overtime_pay = r.overtime_pay || 0;
+          payrollFields.absence_deduction = r.absence_deduction || 0;
         }
         // 差分記録
+        const changeLogs: any[] = [];
         if (orig) {
           for (const [field] of Object.entries(TRACKED_FIELDS)) {
             const oldVal = orig[field] ?? 0;
             const newVal = r[field] ?? 0;
             if (oldVal !== newVal) {
-              changeLogs.push({
-                payroll_monthly_id: r.id,
-                employee_id: r.employee_id,
-                changed_by: employee?.employee_code || "unknown",
-                field_name: field,
-                old_value: oldVal,
-                new_value: newVal,
-              });
+              changeLogs.push({ field_name: field, old_value: oldVal, new_value: newVal });
             }
           }
         }
-        const { data: ur, error: ue } = await supabase.from("payroll_monthly").update(uf).eq("id", r.id).select("id");
-        if (ue) throw ue;
-        if (!ur || ur.length === 0) { console.error("payroll_monthly 0 rows (RLS?):", { id: r.id }); throw new Error(`従業員ID ${r.id} の保存ができませんでした（権限設定の可能性）`); }
-      }
-      // 差分があればログ保存
-      if (changeLogs.length > 0) {
-        const { data: logIns, error: logErr } = await supabase.from("payroll_change_logs").insert(changeLogs).select("id");
-        if (logErr) { setError("給与データは保存しましたが、変更履歴の記録に失敗しました: " + logErr.message); await loadData(); return; }
-        if (!logIns || logIns.length === 0) { setError("給与データは保存しましたが変更履歴が0件しか記録できませんでした（権限設定の可能性）"); await loadData(); return; }
-      }
-      // config に「毎月変わらない項目」を保存（履歴管理）
-      const ftPeriod = getFulltimePeriod(yearMonth);
-      const ptPeriod = getParttimePeriod(yearMonth);
-      const prevDay = (dateStr: string) => {
-        const d = new Date(dateStr + "T00:00:00");
-        d.setDate(d.getDate() - 1);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      };
-      for (const r of rows) {
-        const orig = originalRows.find((o: any) => o.id === r.id);
-        if (!orig) continue;
-        const isPt = r.employment_type === "パート";
+        // config 変更の算出
         const configMap = buildUiToConfigMap(isPt ? PT_CONFIG_FIELDS : FT_CONFIG_FIELDS);
-        const updates: Record<string, number> = {};
-        for (const [field, col] of Object.entries(configMap)) {
-          if ((orig[field] ?? 0) !== (r[field] ?? 0)) {
-            updates[col] = r[field] ?? 0;
+        const configChanges: Record<string, number> = {};
+        if (orig) {
+          for (const [field, col] of Object.entries(configMap)) {
+            if ((orig[field] ?? 0) !== (r[field] ?? 0)) {
+              configChanges[col] = r[field] ?? 0;
+            }
           }
         }
-        if (Object.keys(updates).length === 0) continue;
-        const effectiveFrom = isPt ? ptPeriod.start : ftPeriod.start;
-        const effectiveToPrev = prevDay(effectiveFrom);
-        const { data: sameMonth } = await supabase.from("employee_payroll_config")
-          .select("id").eq("employee_id", r.employee_id).eq("effective_from", effectiveFrom).limit(1);
-        if (sameMonth && sameMonth.length > 0) {
-          const { error: ue } = await supabase.from("employee_payroll_config")
-            .update({ ...updates, updated_at: new Date().toISOString() })
-            .eq("id", sameMonth[0].id);
-          if (ue) throw new Error(`config更新エラー(${r.employee_code}): ${ue.message}`);
-        } else {
-          await supabase.from("employee_payroll_config")
-            .update({ effective_to: effectiveToPrev, updated_at: new Date().toISOString() })
-            .eq("employee_id", r.employee_id).is("effective_to", null).lt("effective_from", effectiveFrom);
-          const category = isPt ? "hourly" : "monthly";
-          const { error: ie } = await supabase.from("employee_payroll_config")
-            .insert({ employee_id: r.employee_id, employment_category: category, effective_from: effectiveFrom, ...updates, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-          if (ie) throw new Error(`config作成エラー(${r.employee_code}): ${ie.message}`);
-        }
+        totalChanges += changeLogs.length;
+        rpcRows.push({
+          employee_id: r.employee_id,
+          employment_type: r.employment_type,
+          payroll_monthly_id: r.id,
+          payroll_fields: payrollFields,
+          config_changes: Object.keys(configChanges).length > 0 ? configChanges : null,
+          change_logs: changeLogs.length > 0 ? changeLogs : null,
+        });
       }
-      setSuccess(`保存しました${changeLogs.length > 0 ? `（${changeLogs.length}件の変更を記録）` : ""}`);
+      const { error: rpcErr } = await supabase.rpc("fn_save_payroll_and_config", {
+        p_year_month: yearMonth,
+        p_changed_by: employee?.employee_code || "unknown",
+        p_rows: rpcRows,
+      });
+      if (rpcErr) throw new Error(rpcErr.message);
+      setSuccess(`保存しました${totalChanges > 0 ? `（${totalChanges}件の変更を記録）` : ""}`);
       await loadData();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
