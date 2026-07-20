@@ -9,6 +9,7 @@ import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 import { getPermLevel, canSeeProfile } from "@/lib/permissions";
 import type { ProfileSection } from "@/lib/permissions";
+import { todayJST } from "@/lib/dateUtils";
 
 // ── 型定義 ──────────────────────────────
 interface EmpRecord {
@@ -484,7 +485,7 @@ export default function RosterTab({ employee }: { employee: any }) {
       .eq("is_active", true)
       .order("employee_code");
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayJST();
     const mapped: EmpRecord[] = (empData || [])
       .filter((e: any) => !e.hire_date || e.hire_date <= today)
       .map((e: any) => {

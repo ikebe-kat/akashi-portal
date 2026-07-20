@@ -6,6 +6,7 @@ import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 import { notifyPush } from "@/lib/notifyPush";
 import { getPermLevel, canEditPunch } from "@/lib/permissions";
+import { todayJST } from "@/lib/dateUtils";
 import NotificationsSub from "@/components/tabs/NotificationsSub";
 import PaidLeaveSub from "@/components/tabs/PaidLeaveSub";
 import SharoushiSub from "@/components/tabs/SharoushiSub";
@@ -241,7 +242,7 @@ const EditModal = ({ row, empName, empCode, isPart, onClose, onSave }: EditModal
         empId = attRow?.employee_id || null;
       }
       if (empId) {
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = todayJST();
         const { data: grants } = await supabase.from("paid_leave_grants").select("remaining_days").eq("employee_id", empId).eq("is_expired", false).gt("remaining_days", 0).gte("expiry_date", todayStr);
         const totalRemaining = (grants || []).reduce((s: number, g: any) => s + Number(g.remaining_days), 0);
         if (totalRemaining < yukyuDays) { alert(`有給残が不足しています（残: ${totalRemaining}日）`); return; }
@@ -658,7 +659,7 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
   const handleBulkSave = async () => {
     const newYukyuDays = calcYukyuDays(previewReason);
     if (newYukyuDays > 0) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayJST();
       const shortage: string[] = [];
       for (const row of checkedRows) {
         const empObj = emps.find(e => e.code === row.emp_code);

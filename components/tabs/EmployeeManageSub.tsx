@@ -4,6 +4,7 @@ import { T } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 import NyushaSheetExport from "@/components/tabs/NyushaSheetExport";
+import { todayJST } from "@/lib/dateUtils";
 
 /* ══════════════════════════════════════ */
 /* ── 選択肢定義（ハンドオフv15準拠） ── */
@@ -61,7 +62,7 @@ const Field = ({ label, children, span }: { label: string; children: React.React
 /* ── 編集モーダル（新規・編集兼用）  ── */
 /* ══════════════════════════════════════ */
 const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Partial<EmpRow> | null; stores: { id: string; name: string }[]; isNew: boolean; onClose: () => void; onSaved: (msg: string) => void; companyId: string }) => {
-  const initial: Record<string, any> = { store_id: "", employee_code: "", full_name: "", full_name_kana: "", email: "", phone: "", gender: "", birth_date: "", hire_date: new Date().toISOString().slice(0, 10), employment_type: "正社員", position: "", department: "", grade: "", weekly_work_days: 5, weekly_work_hours: 40, paid_leave_grant_date: "", work_pattern_code: "09:30-18:00", holiday_pattern: "正社員A", holiday_calendar: "ダイハツ明石西", role: "一般", requires_punch: true, postal_code: "", address: "", emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "", bank_name: "", bank_branch: "", bank_account_type: "普通", bank_account_number: "", bank_account_holder: "", basic_pension_number: "", employment_insurance_number: "", pin: "1234", skills: "", my_number: "", insurance_card_requested: false };
+  const initial: Record<string, any> = { store_id: "", employee_code: "", full_name: "", full_name_kana: "", email: "", phone: "", gender: "", birth_date: "", hire_date: todayJST(), employment_type: "正社員", position: "", department: "", grade: "", weekly_work_days: 5, weekly_work_hours: 40, paid_leave_grant_date: "", work_pattern_code: "09:30-18:00", holiday_pattern: "正社員A", holiday_calendar: "ダイハツ明石西", role: "一般", requires_punch: true, postal_code: "", address: "", emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "", bank_name: "", bank_branch: "", bank_account_type: "普通", bank_account_number: "", bank_account_holder: "", basic_pension_number: "", employment_insurance_number: "", pin: "1234", skills: "", my_number: "", insurance_card_requested: false };
   if (!isNew && emp) { Object.keys(initial).forEach(k => { const v = (emp as any)[k]; if (v != null) initial[k] = v; }); }
   const [form, setForm] = useState<Record<string, any>>(initial);
   const [saving, setSaving] = useState(false);
@@ -173,7 +174,7 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
 /* ── 退職処理モーダル ── */
 /* ══════════════════════════════════════ */
 const ResignModal = ({ emp, onClose, onSaved }: { emp: EmpRow; onClose: () => void; onSaved: (msg: string) => void }) => {
-  const [resignDate, setResignDate] = useState(new Date().toISOString().slice(0, 10));
+  const [resignDate, setResignDate] = useState(todayJST());
   const [saving, setSaving] = useState(false);
   const handleResign = async () => {
     setSaving(true);

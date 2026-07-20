@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, GRANT_MONTHS, DAYS_FULL, DAYS_PART, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 import { fetchEmploymentStatus } from "@/lib/employmentRpc";
+import { toDateStr } from "@/lib/dateUtils";
 
 /* ── 労基法テーブル定数は lib/constants.ts からimport済み ── */
 
@@ -187,7 +188,7 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
     const nowD = new Date();
     const curYr = nowD.getFullYear(), curMo = nowD.getMonth() + 1;
     const curMonthStart = `${curYr}-${String(curMo).padStart(2, "0")}-01`;
-    const curMonthEnd = new Date(curYr, curMo, 0).toISOString().slice(0, 10);
+    const curMonthEnd = toDateStr(new Date(curYr, curMo, 0));
     const statusMap = await fetchEmploymentStatus(employee.company_id, curMonthStart, curMonthEnd, "paid_leave");
     const emps: EmpInfo[] = (ed || []).filter((e: any) => {
       if (["D02","D18","D49","D67"].includes(e.employee_code)) return false;
