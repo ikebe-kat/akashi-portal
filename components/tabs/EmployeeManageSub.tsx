@@ -5,6 +5,7 @@ import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 import NyushaSheetExport from "@/components/tabs/NyushaSheetExport";
 import { todayJST } from "@/lib/dateUtils";
+import { isValidPin } from "@/lib/pinValidation";
 
 /* ══════════════════════════════════════ */
 /* ── 選択肢定義（ハンドオフv15準拠） ── */
@@ -62,8 +63,8 @@ const Field = ({ label, children, span }: { label: string; children: React.React
 /* ── 編集モーダル（新規・編集兼用）  ── */
 /* ══════════════════════════════════════ */
 const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Partial<EmpRow> | null; stores: { id: string; name: string }[]; isNew: boolean; onClose: () => void; onSaved: (msg: string) => void; companyId: string }) => {
-  const initial: Record<string, any> = { store_id: "", employee_code: "", full_name: "", full_name_kana: "", email: "", phone: "", gender: "", birth_date: "", hire_date: todayJST(), employment_type: "正社員", position: "", department: "", grade: "", weekly_work_days: 5, weekly_work_hours: 40, paid_leave_grant_date: "", work_pattern_code: "09:30-18:00", holiday_pattern: "正社員A", holiday_calendar: "ダイハツ明石西", role: "一般", requires_punch: true, postal_code: "", address: "", emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "", bank_name: "", bank_branch: "", bank_account_type: "普通", bank_account_number: "", bank_account_holder: "", basic_pension_number: "", employment_insurance_number: "", pin: "1234", skills: "", my_number: "", insurance_card_requested: false };
-  if (!isNew && emp) { Object.keys(initial).forEach(k => { const v = (emp as any)[k]; if (v != null) initial[k] = v; }); }
+  const initial: Record<string, any> = { store_id: "", employee_code: "", full_name: "", full_name_kana: "", email: "", phone: "", gender: "", birth_date: "", hire_date: todayJST(), employment_type: "正社員", position: "", department: "", grade: "", weekly_work_days: 5, weekly_work_hours: 40, paid_leave_grant_date: "", work_pattern_code: "09:30-18:00", holiday_pattern: "正社員A", holiday_calendar: "ダイハツ明石西", role: "一般", requires_punch: true, postal_code: "", address: "", emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "", bank_name: "", bank_branch: "", bank_account_type: "普通", bank_account_number: "", bank_account_holder: "", basic_pension_number: "", employment_insurance_number: "", pin: "", skills: "", my_number: "", insurance_card_requested: false };
+  if (!isNew && emp) { Object.keys(initial).forEach(k => { if (k === "pin") return; const v = (emp as any)[k]; if (v != null) initial[k] = v; }); }
   const [form, setForm] = useState<Record<string, any>>(initial);
   const [saving, setSaving] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -102,7 +103,9 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
       basic_pension_number: form.basic_pension_number?.trim() || null, employment_insurance_number: form.employment_insurance_number?.trim() || null,
       skills: form.skills?.trim() || null, my_number: form.my_number?.trim() || null, insurance_card_requested: form.insurance_card_requested || false, photo_url: photoUrl, updated_at: new Date().toISOString(),
     };
-    const pinValue = form.pin?.trim() || "1234";
+    const pinRaw = form.pin?.trim() || "";
+    const pinValue = isNew && !pinRaw ? "1234" : pinRaw;
+    if (pinValue && !isValidPin(pinValue)) { setSaving(false); onSaved("PINは4〜6桁の数字で入力してください"); return; }
     let targetEmpId: string | null = emp?.id || null;
     if (isNew) {
       const { data: ins, error } = await supabase.from("employees").insert(payload).select("id").maybeSingle();
@@ -160,7 +163,7 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="基礎年金番号"><input type="text" value={form.basic_pension_number} onChange={e => set("basic_pension_number", e.target.value)} style={inputStyle} /></Field><Field label="雇用保険番号"><input type="text" value={form.employment_insurance_number} onChange={e => set("employment_insurance_number", e.target.value)} style={inputStyle} /></Field><Field label="マイナンバー"><input type="text" value={form.my_number} onChange={e => set("my_number", e.target.value)} placeholder="12桁" maxLength={12} style={inputStyle} /></Field></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="資格確認書"><select value={form.insurance_card_requested ? "true" : "false"} onChange={e => set("insurance_card_requested", e.target.value === "true")} style={selectStyle}><option value="false">不要</option><option value="true">希望</option></select></Field><div /><div /></div>
         <div style={sectionTitleStyle}>認証</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}><Field label="PINコード"><input type="text" value={form.pin} onChange={e => set("pin", e.target.value)} placeholder="1234" maxLength={6} style={inputStyle} /></Field><div /></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}><Field label="PINコード"><input type="text" value={form.pin} onChange={e => set("pin", e.target.value)} placeholder={isNew ? "1234" : "変更する場合のみ入力"} maxLength={6} style={inputStyle} /></Field><div /></div>
         <div style={{ display: "flex", gap: 10, marginTop: 8, paddingBottom: 20 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "12px", borderRadius: 6, border: `1px solid ${T.border}`, backgroundColor: "#fff", color: T.textSec, fontSize: 14, cursor: "pointer" }}>キャンセル</button>
           <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "12px", borderRadius: 6, border: "none", backgroundColor: T.primary, color: "#fff", fontSize: 14, fontWeight: 600, cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "保存中..." : isNew ? "登録" : "更新"}</button>
