@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { T, displayReason, displayChipLabel, isKoukyuPart, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
+import { T, displayReason, displayChipLabel, isKoukyuShift, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import { Badge, ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
@@ -18,7 +18,7 @@ import ShiftSub from "@/components/tabs/ShiftSub";
 import EntryApplicationsSub from "@/components/tabs/EntryApplicationsSub";
 import { fetchEmploymentStatus, fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
 
-interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; resigned_at: string | null; employment_type: string | null; }
+interface EmpOption { id: string; code: string; name: string; store_id: string; store_name: string; department: string | null; role: string | null; hire_date: string | null; paid_leave_grant_date: string | null; holiday_calendar: string | null; resigned_at: string | null; employment_type: string | null; shift_type: string | null; }
 interface AttRow { id: string; attendance_date: string; day_of_week: string | null; punch_in: string | null; punch_out: string | null; reason: string | null; break_minutes: number | null; break_minutes_self_reported: number | null; late_minutes: number | null; early_leave_minutes: number | null; actual_hours: number | null; scheduled_hours: number | null; overtime_hours: number | null; over_under: number | null; employee_note: string | null; admin_memo: string | null; is_holiday: boolean | null; work_pattern_code: string | null; }
 
 type SubTab = "notifications" | "paidleave" | "leave_approval" | "sharoushi" | "individual" | "daily" | "monthly" | "requests" | "documents" | "employee_manage" | "entry_applications" | "settings" | "payroll" | "shift";
@@ -156,8 +156,8 @@ function parseDaikyu(reason: string): { type: "full" | "am" | "pm"; date: string
 /* ══════════════════════════════════════ */
 /* ── 編集モーダル（チップ選択式）── */
 /* ══════════════════════════════════════ */
-interface EditModalProps { row: AttRow; empName: string; empCode: string; isPart?: boolean; onClose: () => void; onSave: (updated: any) => void; }
-const EditModal = ({ row, empName, empCode, isPart, onClose, onSave }: EditModalProps) => {
+interface EditModalProps { row: AttRow; empName: string; empCode: string; shiftType?: string | null; isPart?: boolean; onClose: () => void; onSave: (updated: any) => void; }
+const EditModal = ({ row, empName, empCode, shiftType, isPart, onClose, onSave }: EditModalProps) => {
   const [punchIn, setPunchIn] = useState(row.punch_in?.slice(0,5) || "");
   const [punchOut, setPunchOut] = useState(row.punch_out?.slice(0,5) || "");
   const [note, setNote] = useState(row.employee_note || "");
@@ -252,7 +252,7 @@ const EditModal = ({ row, empName, empCode, isPart, onClose, onSave }: EditModal
     const kibouDays = (selZenjitsu === "選択休（全日）" ? 1 : 0) + (selGozen === "午前選択休" ? 0.5 : 0) + (selGogo === "午後選択休" ? 0.5 : 0);
     if (kibouDays > 0) {
       const { data: empRow } = await supabase.from("employees").select("holiday_pattern, employee_code").eq("employee_code", empCode).maybeSingle();
-      if (empRow && empRow.holiday_pattern && !isKoukyuPart(empRow.employee_code)) {
+      if (empRow && empRow.holiday_pattern && !isKoukyuShift(shiftType)) {
         const currentMonth = new Date(row.attendance_date).getMonth() + 1;
         const { data: quotaRow } = await supabase.from("hope_holiday_quotas").select("quota").eq("pattern_name", empRow.holiday_pattern).eq("month", currentMonth).maybeSingle();
         const quota = quotaRow?.quota ? Number(quotaRow.quota) : 0;
@@ -346,7 +346,7 @@ const EditModal = ({ row, empName, empCode, isPart, onClose, onSave }: EditModal
         <Dot color={T.holidayRed} label="休暇" />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
-          <Chip label={displayChipLabel("選択休（全日）", empCode)} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
+          <Chip label={displayChipLabel("選択休（全日）", shiftType)} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
         </div>
 
 
@@ -434,8 +434,8 @@ const IndividualSub = ({ employee }: { employee: any }) => {
       setStores(storeList);
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
-      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
-      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "" })));
+      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type, employee_payroll_config(shift_type)").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
+      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
     })();
   }, [employee?.company_id]);
 
@@ -590,7 +590,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
                   <td style={{ padding: "8px 6px", fontWeight: 600, color: dow === 0 ? T.holidayRed : dow === 6 ? T.yukyuBlue : T.text, textAlign: "center", whiteSpace: "nowrap" }}>{isSelPartAkashi ? `${d.getMonth()+1}/${d.getDate()}` : d.getDate()}<span style={{ fontSize: 10, marginLeft: 1, fontWeight: 400 }}>({DOW[dow]})</span></td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_in ? T.text : T.textPH }}>{fmTime(r.punch_in)}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_out ? T.text : T.textPH }}>{fmTime(r.punch_out)}</td>
-                  <td style={{ padding: "6px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, (r as any).emp_code || "") || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
+                  <td style={{ padding: "6px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, selectedEmp?.shift_type) || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
                   {isSelPartAkashi && <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.text }}>{r.break_minutes_self_reported != null ? `${r.break_minutes_self_reported}分` : "—"}</td>}
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: ah != null ? T.text : T.textPH }}>{ah != null ? fmDecimal(ah) : "—"}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: (r.over_under ?? 0) > 0 ? T.success : (r.over_under ?? 0) < 0 ? T.danger : T.textMuted }}>{r.over_under != null ? `${r.over_under > 0 ? "+" : ""}${fmDecimal(r.over_under)}` : "—"}</td>
@@ -603,7 +603,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
           </div></div>
         )}
       </>)}
-      {editRow && selectedEmp && <EditModal row={editRow} empName={selectedEmp.name} empCode={selectedEmp.code} isPart={isSelPartAkashi} onClose={() => setEditRow(null)} onSave={handleSave} />}
+      {editRow && selectedEmp && <EditModal row={editRow} empName={selectedEmp.name} empCode={selectedEmp.code} shiftType={selectedEmp.shift_type} isPart={isSelPartAkashi} onClose={() => setEditRow(null)} onSave={handleSave} />}
       {dialogMsg && <Dialog message={dialogMsg} onOk={() => setDialogMsg(null)} />}
       <style>{`@keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}@keyframes fadeIn{from{opacity:0}to{opacity:1}}`}</style>
     </div>
@@ -765,7 +765,7 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
 /* ══════════════════════════════════════ */
 /* ── 日次一覧サブタブ ── */
 /* ══════════════════════════════════════ */
-interface DailyRow extends AttRow { emp_code: string; emp_name: string; store_name: string; employment_type: string | null; }
+interface DailyRow extends AttRow { emp_code: string; emp_name: string; store_name: string; employment_type: string | null; shift_type: string | null; }
 
 const DailySub = ({ employee }: { employee: any }) => {
   const perm = getPermLevel(employee?.role || null);
@@ -794,8 +794,8 @@ const DailySub = ({ employee }: { employee: any }) => {
       setStores(storeList);
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
-      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
-      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "" })));
+      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type, employee_payroll_config(shift_type)").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
+      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
     })();
   }, [employee?.company_id]);
 
@@ -832,12 +832,12 @@ const DailySub = ({ employee }: { employee: any }) => {
       const onLeave = dailyLeaveSet.has(leaveKey(emp.id, selectedDate));
       const att = attMap[emp.id];
       if (att) {
-        const row: DailyRow = { ...att, emp_code: emp.code, emp_name: emp.name, store_name: emp.store_name, employment_type: emp.employment_type };
+        const row: DailyRow = { ...att, emp_code: emp.code, emp_name: emp.name, store_name: emp.store_name, employment_type: emp.employment_type, shift_type: emp.shift_type };
         if (onLeave) row.reason = "休職";
         if (row.is_holiday == null && isHoliday) row.is_holiday = true;
         return row;
       }
-      return { id: `empty-${emp.id}`, attendance_date: selectedDate, day_of_week: null, punch_in: null, punch_out: null, reason: onLeave ? "休職" : null, break_minutes: null, break_minutes_self_reported: null, late_minutes: null, early_leave_minutes: null, actual_hours: null, scheduled_hours: null, overtime_hours: null, over_under: null, employee_note: null, admin_memo: null, is_holiday: isHoliday || null, work_pattern_code: null, emp_code: emp.code, emp_name: emp.name, store_name: emp.store_name, employment_type: emp.employment_type };
+      return { id: `empty-${emp.id}`, attendance_date: selectedDate, day_of_week: null, punch_in: null, punch_out: null, reason: onLeave ? "休職" : null, break_minutes: null, break_minutes_self_reported: null, late_minutes: null, early_leave_minutes: null, actual_hours: null, scheduled_hours: null, overtime_hours: null, over_under: null, employee_note: null, admin_memo: null, is_holiday: isHoliday || null, work_pattern_code: null, emp_code: emp.code, emp_name: emp.name, store_name: emp.store_name, employment_type: emp.employment_type, shift_type: emp.shift_type };
     });
     setRows(allRows);
     setLoading(false);
@@ -951,7 +951,7 @@ const DailySub = ({ employee }: { employee: any }) => {
                   <td style={{ padding: "7px 6px", fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>{r.emp_name}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_in ? T.text : T.textPH }}>{fmTime(r.punch_in)}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_out ? T.text : T.textPH }}>{fmTime(r.punch_out)}</td>
-                  <td style={{ padding: "5px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, (r as any).emp_code || "") || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
+                  <td style={{ padding: "5px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, r.shift_type) || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontSize: 11, color: T.text }}>{isP && r.break_minutes_self_reported != null ? `${r.break_minutes_self_reported}分` : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: ah != null ? T.text : T.textPH }}>{ah != null ? fmDecimal(ah) : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: (r.over_under ?? 0) > 0 ? T.success : (r.over_under ?? 0) < 0 ? T.danger : T.textMuted }}>{r.over_under != null ? `${r.over_under > 0 ? "+" : ""}${fmDecimal(r.over_under)}` : "—"}</td>
@@ -964,7 +964,7 @@ const DailySub = ({ employee }: { employee: any }) => {
           </table>
         </div></div>
       )}
-      {editRow && <EditModal row={editRow} empName={editEmpName} empCode={(editRow as any).emp_code || ""} isPart={editRow.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID} onClose={() => setEditRow(null)} onSave={handleSave} />}
+      {editRow && <EditModal row={editRow} empName={editEmpName} empCode={(editRow as any).emp_code || ""} shiftType={editRow.shift_type} isPart={editRow.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID} onClose={() => setEditRow(null)} onSave={handleSave} />}
       {showBulkModal && <BulkEditModal
         checkedRows={rows.filter(r => checkedIds.has(r.id))}
         emps={emps}
@@ -1012,8 +1012,8 @@ const MonthlySub = ({ employee }: { employee: any }) => {
       setStores(storeList);
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
-      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, resigned_at, employment_type").eq("company_id", employee.company_id).order("employee_code");
-      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null })));
+      const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, resigned_at, employment_type, employee_payroll_config(shift_type)").eq("company_id", employee.company_id).order("employee_code");
+      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
     })();
   }, [employee?.company_id]);
 
@@ -1343,9 +1343,9 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
   const fetchData = useCallback(async () => {
     if (!employee?.company_id) return;
     setLoading(true);
-    const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
+    const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type, employee_payroll_config(shift_type)").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
     const empData = (empDataRaw || []).filter((e: any) => e.employee_code !== "D02");
-    const empList = (empData || []).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: "" }));
+    const empList = (empData || []).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: "", shift_type: e.employee_payroll_config?.[0]?.shift_type || null }));
     setEmps(empList);
     const empMap: Record<string, { code: string; name: string }> = {};
     empList.forEach((e: EmpOption) => { empMap[e.id] = { code: e.code, name: e.name }; });

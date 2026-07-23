@@ -117,23 +117,21 @@ export function getDateRange(yr: number, mo: number, isPart: boolean): {
 }
 
 // ═══════════════════════════════════════════
-// パート公休 名称変更
+// パート公休 名称変更（shift_type で判定）
 // ═══════════════════════════════════════════
-export const KOUKYU_PART_CODES = ["DA023", "DA024", "DA025", "DA026", "DA027", "DA028", "DA029", "DA030", "DA031", "DA032"] as const;
+export const isKoukyuShift = (shiftType: string | null | undefined): boolean =>
+  shiftType === "off";
 
-export const isKoukyuPart = (empCode: string): boolean =>
-  (KOUKYU_PART_CODES as readonly string[]).includes(empCode);
-
-export const displayReason = (reason: string | null, empCode: string): string | null => {
-  if (!reason || !isKoukyuPart(empCode)) return reason;
+export const displayReason = (reason: string | null, shiftType: string | null | undefined): string | null => {
+  if (!reason || !isKoukyuShift(shiftType)) return reason;
   return reason
     .replace(/希望休（全日）/g, "公休（全日）")
     .replace(/午前希望休/g, "午前公休")
     .replace(/午後希望休/g, "午後公休");
 };
 
-export const displayChipLabel = (label: string, empCode: string): string => {
-  if (!isKoukyuPart(empCode)) return label;
+export const displayChipLabel = (label: string, shiftType: string | null | undefined): string => {
+  if (!isKoukyuShift(shiftType)) return label;
   return label
     .replace(/希望休（全日）/, "公休（全日）")
     .replace(/午前希望休/, "午前公休")

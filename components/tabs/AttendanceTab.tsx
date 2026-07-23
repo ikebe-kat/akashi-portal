@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuPart, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
+import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuShift, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import { ReasonBadges } from "@/components/ui";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import type { MonthlySummary } from "@/lib/types";
@@ -247,7 +247,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       return s;
     }, 0);
     const tw = allDays.reduce((s, d) => s + d.wm, 0);
-    return { wd, hd, ab, yu, kr: isKoukyuPart(employee?.employee_code || "") ? 999 : kibouQuota - ku, tw, sm: scheduledMin, df: tw - scheduledMin };
+    return { wd, hd, ab, yu, kr: isKoukyuShift(empShiftType) ? 999 : kibouQuota - ku, tw, sm: scheduledMin, df: tw - scheduledMin };
   }, [allDays, scheduledMin, kibouQuota]);
 
   /* ── モーダル開く ── */
@@ -365,7 +365,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     }
 
     /* 選択休上限チェック */
-    if (!isKoukyuPart(employee?.employee_code || "")) {
+    if (!isKoukyuShift(empShiftType)) {
       const kibouDays = (selZenjitsu === "選択休（全日）" ? 1 : 0) + (selGozen === "午前選択休" ? 0.5 : 0) + (selGogo === "午後選択休" ? 0.5 : 0);
       if (kibouDays > 0 && kibouQuota > 0) {
         const usedKibou = allDays.reduce((s, d) => {
@@ -556,7 +556,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         <SC l="出勤日数" v={sum.wd} u="日" /><SC l="休日" v={sum.hd} u="日" />
         <SC l="欠勤" v={sum.ab} u="日" c={sum.ab > 0 ? T.danger : T.text} />
         <SC l="有給取得" v={sum.yu} u="日" c={T.yukyuBlue} />
-        <SC l={isKoukyuPart(employee?.employee_code || "") ? "公休残" : "選択休残"} v={isKoukyuPart(employee?.employee_code || "") ? "∞" : sum.kr} u="日" c={!isKoukyuPart(employee?.employee_code || "") && sum.kr <= 0 ? T.danger : T.text} />
+        <SC l={isKoukyuShift(empShiftType) ? "公休残" : "選択休残"} v={isKoukyuShift(empShiftType) ? "∞" : sum.kr} u="日" c={!isKoukyuShift(empShiftType) && sum.kr <= 0 ? T.danger : T.text} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 16 }}>
         <SC l="月間総労働" v={fmtMin(sum.tw)} u="h" />
@@ -592,7 +592,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
                     <td style={{ padding: "7px 4px", textAlign: "center", color: dc, width: 20 }}>{DOW[row.dow]}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.pi ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.po ?? <span style={{ color: T.textPH }}>—</span>}</td>
-                    <td style={{ padding: "7px 4px" }}>{row.approved && row.reason && row.reason.includes("有給") ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#D1FAE5", color: "#065F46" }}>有給承認済</span> : row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : <ReasonBadges reason={displayReason(row.reason, employee?.employee_code || "") ?? (row.off ? "定休日" : null)} />}</td>
+                    <td style={{ padding: "7px 4px" }}>{row.approved && row.reason && row.reason.includes("有給") ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#D1FAE5", color: "#065F46" }}>有給承認済</span> : row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : <ReasonBadges reason={displayReason(row.reason, empShiftType) ?? (row.off ? "定休日" : null)} />}</td>
                     {!isMobile && isAkashiPart && (
                       <td style={{ padding: "7px 4px", color: T.text, width: 40, whiteSpace: "nowrap", textAlign: "center", fontSize: 11 }}>{row.breakMin != null ? `${row.breakMin}分` : <span style={{ color: T.textPH }}>—</span>}</td>
                     )}
@@ -732,7 +732,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
               <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
               {!(employee?.company_id === AKASHI_COMPANY_ID && (yr > 2026 || (yr === 2026 && mo >= 5))) && (
-                <Chip label={displayChipLabel("選択休（全日）", employee?.employee_code || "")} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
+                <Chip label={displayChipLabel("選択休（全日）", empShiftType)} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
               )}
             </div>
 

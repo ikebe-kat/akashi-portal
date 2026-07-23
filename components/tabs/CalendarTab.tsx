@@ -41,6 +41,7 @@ interface AttendanceEvent {
   reason: string;
   calGroup: string;
   emp_code: string;
+  shift_type: string | null;
   calDisplayName?: string | null;
 }
 
@@ -553,14 +554,22 @@ export default function CalendarTab({ employee }: { employee: any }) {
     if (evErr) console.error("[CalendarTab] expand_events error:", evErr);
     setCustomEvents(evData || []);
 
-    const { data: attData } = await supabase
-      .from("attendance_daily")
-      .select("employee_id, attendance_date, reason, employees!inner(full_name, employee_code, store_id, department, calendar_display_name)")
-      .eq("company_id", employee.company_id)
-      .gte("attendance_date", monthStart)
-      .lte("attendance_date", monthEnd)
-      .not("reason", "is", null)
-      .neq("reason", "");
+    const [{ data: attData }, { data: shiftData }] = await Promise.all([
+      supabase
+        .from("attendance_daily")
+        .select("employee_id, attendance_date, reason, employees!inner(full_name, employee_code, store_id, department, calendar_display_name)")
+        .eq("company_id", employee.company_id)
+        .gte("attendance_date", monthStart)
+        .lte("attendance_date", monthEnd)
+        .not("reason", "is", null)
+        .neq("reason", ""),
+      supabase
+        .from("employee_payroll_config")
+        .select("employee_id, shift_type"),
+    ]);
+
+    const shiftMap: Record<string, string | null> = {};
+    (shiftData || []).forEach((s: any) => { shiftMap[s.employee_id] = s.shift_type || null; });
 
     const calLeaveSet = await fetchLeaveDays(employee.company_id, monthStart, monthEnd, "attendance");
 
@@ -570,6 +579,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
         employee_id: row.employee_id,
         full_name: (row.employees as any)?.full_name || "不明",
         emp_code: (row.employees as any)?.employee_code || "",
+        shift_type: shiftMap[row.employee_id] || null,
         attendance_date: row.attendance_date,
         reason: row.reason,
         calGroup: storeIdToCalGroup((row.employees as any)?.store_id || null, (row.employees as any)?.department || null),
@@ -719,7 +729,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
             {selAtt.map((a, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.borderLight}` }}>
                 <span style={{ fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{calendarDisplayName(a.full_name, a.calDisplayName, surnameRoster)}</span>
-                <ReasonBadges reason={displayReason(a.reason, (a as any).emp_code || "") || a.reason} />
+                <ReasonBadges reason={displayReason(a.reason, a.shift_type) || a.reason} />
               </div>
             ))}
           </div>
@@ -866,7 +876,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
                       {/* 勤怠バッジ */}
                       {at.slice(0, maxBadges).map((a, j) => {
                         const isYukyu = a.reason.includes("有給");
-                        const displayR = displayReason(a.reason, a.emp_code || "") || a.reason;
+                        const displayR = displayReason(a.reason, a.shift_type) || a.reason;
                         const isKibou = displayR.includes("選択休") || displayR.includes("公休");
                         return (
                           <div key={`a${j}`} style={{
