@@ -36,18 +36,6 @@ const NO_NOTIFY_CODES = ["D02"];
 // D49はカレンダー通知のみ（事由登録・打刻漏れは除外）
 const CALENDAR_ONLY_CODES = ["D49"];
 
-const calMap: Record<string, string> = {
-  "all": "全店舗", "okubo": "大久保店", "uozumi": "魚住店",
-  "全店舗": "全店舗", "大久保店": "大久保店", "魚住店": "魚住店",
-};
-
-function resolveStoreShort(storeName: string): string {
-  if (!storeName) return "—";
-  if (storeName.includes("大久保")) return "大久保店";
-  if (storeName.includes("魚住")) return "魚住店";
-  if (storeName.includes("本部")) return "本部";
-  return storeName;
-}
 
 function resolveCalendarGroup(empCode: string, department: string, storeName: string): string {
   if (storeName.includes("大久保")) return "大久保店";
@@ -108,11 +96,22 @@ serve(async (req) => {
         .eq("company_id", companyId)
         .eq("is_active", true);
       const { data: stores } = await sb.from("stores")
-        .select("id, store_name")
+        .select("id, store_name, short_name")
         .eq("company_id", companyId);
       const storeMap: Record<string, string> = {};
-      (stores || []).forEach((s: any) => { storeMap[s.id] = s.store_name || ""; });
-      return { allEmps: allEmps || [], storeMap };
+      const shortNameMap: Record<string, string> = {};
+      (stores || []).forEach((s: any) => {
+        storeMap[s.id] = s.store_name || "";
+        if (s.short_name) shortNameMap[s.id] = s.short_name;
+      });
+      const { data: calGroups } = await sb.from("calendar_groups")
+        .select("group_key, display_name")
+        .eq("company_id", companyId);
+      const calLabelMap: Record<string, string> = {};
+      (calGroups || []).forEach((g: any) => {
+        if (g.group_key && g.display_name) calLabelMap[g.group_key] = g.display_name;
+      });
+      return { allEmps: allEmps || [], storeMap, shortNameMap, calLabelMap };
     }
 
     // ============================
@@ -121,13 +120,13 @@ serve(async (req) => {
     if (type === "calendar_event") {
       const { action, event } = payload;
       const creatorName = event.creator_name || "不明";
-      const calLabel = calMap[event.target_calendar] || event.target_calendar;
+      const { allEmps, storeMap, calLabelMap } = await getEmpsAndStores(event.company_id);
+      const calLabel = calLabelMap[event.target_calendar] || event.target_calendar;
       const title = action === "created"
         ? `${creatorName}が予定を登録しました`
         : action === "updated"
         ? `${creatorName}が予定を編集しました`
         : `${creatorName}が予定を削除しました`;
-      const { allEmps, storeMap } = await getEmpsAndStores(event.company_id);
       const allNames = allEmps.map((e: any) => e.full_name);
       const creatorEmp = allEmps.find((e: any) => e.id === (event.creator_employee_id || null));
       const body = `${calLabel}：${lastName(creatorName, creatorEmp?.calendar_display_name, allNames)} ${event.title} ${shortDate(event.start_date)}`;
@@ -175,9 +174,9 @@ serve(async (req) => {
     // ============================
     if (type === "attendance_reason_set") {
       const { company_id, employee_id, employee_name, reason, attendance_date } = payload;
-      const { allEmps: _emps1, storeMap: _sm1 } = await getEmpsAndStores(company_id);
+      const { allEmps: _emps1, storeMap: _sm1, shortNameMap: _snm1 } = await getEmpsAndStores(company_id);
       const _emp1 = _emps1.find((e: any) => e.id === employee_id);
-      const storeShort = resolveStoreShort(_emp1 ? (_sm1[_emp1.store_id] || "") : "");
+      const storeShort = _emp1 ? (_snm1[_emp1.store_id] || "—") : "—";
       const dateShort = shortDate(attendance_date);
 
       let reasonLabel = "";
@@ -224,9 +223,9 @@ serve(async (req) => {
     // ============================
     if (type === "attendance_reason_cleared") {
       const { company_id, employee_id, employee_name, old_reason, attendance_date } = payload;
-      const { allEmps: _emps2, storeMap: _sm2 } = await getEmpsAndStores(company_id);
+      const { allEmps: _emps2, storeMap: _sm2, shortNameMap: _snm2 } = await getEmpsAndStores(company_id);
       const _emp2 = _emps2.find((e: any) => e.id === employee_id);
-      const storeShort = resolveStoreShort(_emp2 ? (_sm2[_emp2.store_id] || "") : "");
+      const storeShort = _emp2 ? (_snm2[_emp2.store_id] || "—") : "—";
       const dateShort = shortDate(attendance_date);
 
       let reasonLabel = "";
@@ -510,10 +509,10 @@ serve(async (req) => {
         return new Response(JSON.stringify({ sent: 0 }), { headers: { ...corsHeaders } });
       }
 
-      const { allEmps, storeMap } = await getEmpsAndStores(company_id);
+      const { allEmps, storeMap, calLabelMap } = await getEmpsAndStores(company_id);
 
       for (const evt of events) {
-        const calLabel = calMap[evt.target_calendar] || evt.target_calendar;
+        const calLabel = calLabelMap[evt.target_calendar] || evt.target_calendar;
         const dow = ["日","月","火","水","木","金","土"][new Date(evt.start_date).getDay()];
         const d = new Date(evt.start_date);
         const dateDisplay = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日(${dow})`;
@@ -538,11 +537,11 @@ serve(async (req) => {
     // ============================
     if (type === "leave_request_new") {
       const { company_id, employee_name, reason, attendance_date, store_name, notify_codes } = payload;
-      const { allEmps } = await getEmpsAndStores(company_id);
-      const storeShort = resolveStoreShort(store_name || "");
+      const { allEmps, shortNameMap } = await getEmpsAndStores(company_id);
+      const leaveEmp = allEmps.find((e: any) => e.full_name === employee_name);
+      const storeShort = leaveEmp ? (shortNameMap[leaveEmp.store_id] || "—") : "—";
       const dateShort = shortDate(attendance_date);
       const allNamesLeave = allEmps.map((e: any) => e.full_name);
-      const leaveEmp = allEmps.find((e: any) => e.full_name === employee_name);
       const title = `${employee_name}が有給を申請しました`;
       const body = `${storeShort}・${lastName(employee_name, leaveEmp?.calendar_display_name, allNamesLeave)} ${dateShort}`;
       for (const code of (notify_codes || [])) {
