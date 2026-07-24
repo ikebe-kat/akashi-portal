@@ -172,7 +172,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     } else { setKibouQuota(0); }
     const { data: lrData } = await supabase
       .from("leave_requests").select("attendance_date, end_date, status, reason, reject_reason, approved_at, type")
-      .eq("employee_id", employee.id).in("status", ["申請中", "却下", "承認"]);
+      .eq("employee_id", employee.id).in("status", ["pending", "rejected", "approved"]);
     // shift_work/shift_off は別管理のため、有給系（type IS NULL）だけを leaveRequests に入れる
     setLeaveRequests((lrData ?? []).filter((r: any) => r.type !== "shift_work" && r.type !== "shift_off"));
 
@@ -203,9 +203,9 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     for (const rd of range.days) {
       const { dateStr, day, dow } = rd;
       const rec = rows.find(r => r.attendance_date === dateStr);
-      const pendingLr = leaveRequests.find(lr => lr.status === "申請中" && lr.attendance_date === dateStr);
-      const rejectedLr = leaveRequests.find(lr => lr.status === "却下" && lr.attendance_date === dateStr);
-      const approvedLr = leaveRequests.find(lr => lr.status === "承認" && lr.attendance_date === dateStr);
+      const pendingLr = leaveRequests.find(lr => lr.status === "pending" && lr.attendance_date === dateStr);
+      const rejectedLr = leaveRequests.find(lr => lr.status === "rejected" && lr.attendance_date === dateStr);
+      const approvedLr = leaveRequests.find(lr => lr.status === "approved" && lr.attendance_date === dateStr);
       let wm = 0;
       if (isAkashiPart && rec?.punch_in && rec?.punch_out) {
         wm = toM(rec.punch_out.slice(0, 5)) - toM(rec.punch_in.slice(0, 5)) - ((rec as any).break_minutes_self_reported ?? 0);
@@ -398,7 +398,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       }
       setSaving(true);
       await supabase.from("leave_requests").delete()
-        .eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr).eq("status", "却下");
+        .eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr).eq("status", "rejected");
       const { data: inserted, error } = await supabase.from("leave_requests").insert({
         company_id: employee.company_id,
         employee_id: employee.id,
@@ -406,7 +406,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         reason: previewReason,
         request_comment: requestComment.trim(),
         approver_id: approverId,
-        status: "申請中",
+        status: "pending",
       }).select();
       setSaving(false);
       if (error) {
@@ -633,7 +633,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
 
             {/* 承認済み有給の場合：再申請UIを開かず承認済表示 */}
             {modalDay.approved && modalDay.reason && modalDay.reason.includes("有給") ? (() => {
-              const lr = leaveRequests.find((r: any) => r.status === "承認" && r.attendance_date === modalDay.dateStr);
+              const lr = leaveRequests.find((r: any) => r.status === "approved" && r.attendance_date === modalDay.dateStr);
               return (
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ padding: "14px", borderRadius: "6px", backgroundColor: "#ECFDF5", border: "1px solid #10B981" }}>
@@ -650,16 +650,16 @@ export default function AttendanceTab({ employee }: { employee: any }) {
               const lr = leaveRequests.find((r: any) => r.attendance_date === modalDay.dateStr);
               return lr ? (
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ padding: "14px", borderRadius: "6px", backgroundColor: lr.status === "却下" ? "#FEF2F2" : "#EFF6FF", border: lr.status === "却下" ? "1px solid #EF4444" : "1px solid #3B82F6" }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: lr.status === "却下" ? "#991B1B" : "#1D4ED8", marginBottom: 8 }}>{lr.status === "却下" ? "有給却下" : "有給申請中"}</div>
+                  <div style={{ padding: "14px", borderRadius: "6px", backgroundColor: lr.status === "rejected" ? "#FEF2F2" : "#EFF6FF", border: lr.status === "rejected" ? "1px solid #EF4444" : "1px solid #3B82F6" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: lr.status === "rejected" ? "#991B1B" : "#1D4ED8", marginBottom: 8 }}>{lr.status === "rejected" ? "有給却下" : "有給申請中"}</div>
                     <div style={{ marginBottom: 4 }}><ReasonBadges reason={lr.reason} /></div>
-                    {lr.status === "却下" && lr.reject_reason && <div style={{ fontSize: 13, color: "#991B1B", marginTop: 6 }}>却下理由: {lr.reject_reason}</div>}
+                    {lr.status === "rejected" && lr.reject_reason && <div style={{ fontSize: 13, color: "#991B1B", marginTop: 6 }}>却下理由: {lr.reject_reason}</div>}
                   </div>
-                  {lr.status === "申請中" && (
+                  {lr.status === "pending" && (
                   <button onClick={() => {
                     showConfirm("この有給申請を取り下げますか？", async () => {
                       setSaving(true);
-                      const { data: del, error } = await supabase.from("leave_requests").delete().eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr).eq("status", "申請中").select("id");
+                      const { data: del, error } = await supabase.from("leave_requests").delete().eq("employee_id", employee.id).eq("attendance_date", modalDay.dateStr).eq("status", "pending").select("id");
                       setSaving(false);
                       if (error) { console.error("取り下げ err:", error); showAlert("取り下げに失敗しました: " + error.message); return; }
                       if (!del || del.length === 0) { console.error("取り下げ 0 rows"); showAlert("取り下げ対象が見つかりませんでした（既に処理済みの可能性、または権限設定の可能性）"); return; }
@@ -715,7 +715,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             </> : <>
             {/* ── 正社員モーダル（既存） ── */}
             {modalDay.rejected && !modalDay.reason && (() => {
-              const rlr = leaveRequests.find((r: any) => r.status === "却下" && r.attendance_date === modalDay.dateStr);
+              const rlr = leaveRequests.find((r: any) => r.status === "rejected" && r.attendance_date === modalDay.dateStr);
               return rlr ? (
                 <div style={{ padding: "10px 14px", borderRadius: "6px", backgroundColor: "#FEF2F2", border: "1px solid #EF4444", marginBottom: 12 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#991B1B", marginBottom: 4 }}>前回の有給申請が却下されました</div>

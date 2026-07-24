@@ -25,15 +25,18 @@ interface LeaveReq {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  "申請中": { bg: "#FEF3C7", color: "#92400E" },
-  "承認": { bg: "#D1FAE5", color: "#065F46" },
-  "却下": { bg: "#FEE2E2", color: "#991B1B" },
+  pending: { bg: "#FEF3C7", color: "#92400E" },
+  approved: { bg: "#D1FAE5", color: "#065F46" },
+  rejected: { bg: "#FEE2E2", color: "#991B1B" },
+};
+const STATUS_LABEL: Record<string, string> = {
+  pending: "申請中", approved: "承認", rejected: "却下",
 };
 
 export default function LeaveApprovalSub({ employee }: { employee: any }) {
   const [requests, setRequests] = useState<LeaveReq[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("申請中");
+  const [filter, setFilter] = useState("pending");
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
   const [processing, setProcessing] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ message: string; mode: "alert" | "confirm"; onOk: () => void } | null>(null);
@@ -83,25 +86,24 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
   }, [requests, employee?.employee_code, employee?.id]);
 
   const filtered = useMemo(() => {
-    if (filter === "全件") return permFiltered;
+    if (filter === "all") return permFiltered;
     return permFiltered.filter(r => r.status === filter);
   }, [permFiltered, filter]);
 
   const counts = useMemo(() => {
     let pending = 0, approved = 0, rejected = 0;
     permFiltered.forEach(r => {
-      if (r.status === "申請中") pending++;
-      else if (r.status === "承認") approved++;
-      else if (r.status === "却下") rejected++;
+      if (r.status === "pending") pending++;
+      else if (r.status === "approved") approved++;
+      else if (r.status === "rejected") rejected++;
     });
     return { pending, approved, rejected, total: permFiltered.length };
   }, [permFiltered]);
 
-  // leave_requests を申請中に戻す（後段失敗時の補償）
   const rollbackLeaveRequest = async (id: string) => {
     await supabase.from("leave_requests").update({
-      status: "申請中", approved_by: null, approved_at: null,
-      reject_reason: null, updated_at: new Date().toISOString(),
+      status: "pending", approved_by: null, approved_at: null,
+      reject_reason: null, approver_id: null, updated_at: new Date().toISOString(),
     }).eq("id", id);
   };
 
@@ -110,9 +112,9 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
   const handleApprove = async (req: LeaveReq) => {
     setProcessing(req.id);
 
-    // ① leave_requests を「承認」に更新
     const { data: lrUpd, error: lrErr } = await supabase.from("leave_requests").update({
-      status: "承認", approved_by: employee.id, approved_at: new Date().toISOString(),
+      status: "approved", approved_by: employee.id, approved_at: new Date().toISOString(),
+      approver_id: req.approver_id || employee.id,
       updated_at: new Date().toISOString(),
     }).eq("id", req.id).select();
     if (lrErr) { console.error("approve leave_requests err:", lrErr); setProcessing(null); showErr("承認に失敗しました: " + lrErr.message); return; }
@@ -154,8 +156,9 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     if (!reason) { showErr("却下理由を入力してください"); return; }
     setProcessing(req.id);
     const { data: upd, error } = await supabase.from("leave_requests").update({
-      status: "却下", approved_by: employee.id, approved_at: new Date().toISOString(),
-      reject_reason: reason, updated_at: new Date().toISOString(),
+      status: "rejected", approved_by: employee.id, approved_at: new Date().toISOString(),
+      reject_reason: reason, approver_id: req.approver_id || employee.id,
+      updated_at: new Date().toISOString(),
     }).eq("id", req.id).select();
     if (error) { console.error("reject err:", error); setProcessing(null); showErr("却下に失敗しました: " + error.message); return; }
     if (!upd || upd.length === 0) { console.error("reject 0 rows (RLS?):", { id: req.id }); setProcessing(null); showErr("却下が保存できませんでした（RLS の可能性）。管理者に連絡してください。"); return; }
@@ -192,10 +195,10 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
   };
 
   const filterBtns = [
-    { label: "申請中", value: "申請中", count: counts.pending, color: "#92400E" },
-    { label: "承認", value: "承認", count: counts.approved, color: T.success },
-    { label: "却下", value: "却下", count: counts.rejected, color: T.danger },
-    { label: "全件", value: "全件", count: counts.total, color: T.textSec },
+    { label: "申請中", value: "pending", count: counts.pending, color: "#92400E" },
+    { label: "承認", value: "approved", count: counts.approved, color: T.success },
+    { label: "却下", value: "rejected", count: counts.rejected, color: T.danger },
+    { label: "全件", value: "all", count: counts.total, color: T.textSec },
   ];
 
   return (
@@ -215,13 +218,13 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 20px", color: T.textMuted }}>
           <div style={{ fontSize: 24, marginBottom: 8 }}>📋</div>
-          <div style={{ fontSize: 14 }}>{filter === "申請中" ? "未処理の申請はありません" : "該当する申請はありません"}</div>
+          <div style={{ fontSize: 14 }}>{filter === "pending" ? "未処理の申請はありません" : "該当する申請はありません"}</div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {filtered.map(req => {
-            const sc = STATUS_COLORS[req.status] || STATUS_COLORS["申請中"];
-            const isPending = req.status === "申請中";
+            const sc = STATUS_COLORS[req.status] || STATUS_COLORS.pending;
+            const isPending = req.status === "pending";
             return (
               <div key={req.id} style={{ border: `1px solid ${isPending ? "#3B82F640" : T.border}`, borderRadius: 8, padding: 16, backgroundColor: isPending ? "#FAFCFF" : "#fff" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -230,7 +233,7 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
                     <span style={{ fontSize: 11, color: T.textMuted, marginLeft: 6 }}>{req.emp_code}</span>
                     <span style={{ fontSize: 11, color: T.textSec, marginLeft: 6 }}>{storeShort(req.store_name || null)}</span>
                   </div>
-                  <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 600, backgroundColor: sc.bg, color: sc.color }}>{req.status}</span>
+                  <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 600, backgroundColor: sc.bg, color: sc.color }}>{STATUS_LABEL[req.status] || req.status}</span>
                 </div>
 
                 <div style={{ marginBottom: 10, padding: "10px 12px", backgroundColor: "#F8FAFC", borderRadius: 6 }}>
@@ -244,10 +247,10 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
 
                 <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>申請日時: {fmtDateTime(req.created_at)}</div>
 
-                {req.status === "承認" && req.approved_at && (
+                {req.status === "approved" && req.approved_at && (
                   <div style={{ fontSize: 11, color: T.success, marginTop: 4 }}>✅ 承認日時: {fmtDateTime(req.approved_at)}</div>
                 )}
-                {req.status === "却下" && (
+                {req.status === "rejected" && (
                   <div>
                     {req.approved_at && <div style={{ fontSize: 11, color: T.danger, marginTop: 4 }}>❌ 却下日時: {fmtDateTime(req.approved_at)}</div>}
                     {req.reject_reason && (

@@ -506,7 +506,7 @@ async function fetchHolidays(start: string, end: string): Promise<Map<string, Se
 async function fetchLeaveRequests(start: string, end: string): Promise<LeaveRecord[]> {
   const { data, error } = await supabase.from('leave_requests')
     .select('employee_id, attendance_date, reason')
-    .eq('company_id', AKASHI_COMPANY_ID).eq('status', '承認').gte('attendance_date', start).lte('attendance_date', end);
+    .eq('company_id', AKASHI_COMPANY_ID).eq('status', 'approved').gte('attendance_date', start).lte('attendance_date', end);
   if (error) throw new Error(`有給データ取得エラー: ${error.message}`);
   return data || [];
 }
