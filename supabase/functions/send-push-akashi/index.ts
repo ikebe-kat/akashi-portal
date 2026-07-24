@@ -100,9 +100,11 @@ serve(async (req) => {
         .eq("company_id", companyId);
       const storeMap: Record<string, string> = {};
       const shortNameMap: Record<string, string> = {};
+      const storeNameToShortMap: Record<string, string> = {};
       (stores || []).forEach((s: any) => {
         storeMap[s.id] = s.store_name || "";
         if (s.short_name) shortNameMap[s.id] = s.short_name;
+        if (s.store_name && s.short_name) storeNameToShortMap[s.store_name] = s.short_name;
       });
       const { data: calGroups } = await sb.from("calendar_groups")
         .select("group_key, display_name")
@@ -111,7 +113,7 @@ serve(async (req) => {
       (calGroups || []).forEach((g: any) => {
         if (g.group_key && g.display_name) calLabelMap[g.group_key] = g.display_name;
       });
-      return { allEmps: allEmps || [], storeMap, shortNameMap, calLabelMap };
+      return { allEmps: allEmps || [], storeMap, shortNameMap, storeNameToShortMap, calLabelMap };
     }
 
     // ============================
@@ -537,9 +539,9 @@ serve(async (req) => {
     // ============================
     if (type === "leave_request_new") {
       const { company_id, employee_name, reason, attendance_date, store_name, notify_codes } = payload;
-      const { allEmps, shortNameMap } = await getEmpsAndStores(company_id);
+      const { allEmps, storeNameToShortMap } = await getEmpsAndStores(company_id);
+      const storeShort = storeNameToShortMap[store_name || ""] || "—";
       const leaveEmp = allEmps.find((e: any) => e.full_name === employee_name);
-      const storeShort = leaveEmp ? (shortNameMap[leaveEmp.store_id] || "—") : "—";
       const dateShort = shortDate(attendance_date);
       const allNamesLeave = allEmps.map((e: any) => e.full_name);
       const title = `${employee_name}が有給を申請しました`;
