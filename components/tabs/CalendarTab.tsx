@@ -4,8 +4,7 @@
 // レスポンシブ対応版: PC=セル110px+右パネル320px / スマホ=右スライドインパネル65%幅
 // ═══════════════════════════════════════════
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { T, DOW, PALETTE, stepMonth, displayReason, calendarDisplayName, AKASHI_COMPANY_ID } from "@/lib/constants";
-import { fetchCalGroups, calGroupLabel, type CalGroup } from "@/lib/calendarGroups";
+import { T, DOW, PALETTE, CAL_GROUPS, stepMonth, displayReason, calendarDisplayName, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import { supabase } from "@/lib/supabase";
@@ -88,7 +87,6 @@ interface AddModalProps {
   perm: "super" | "admin" | "employee";
   myCalGroup: string;
   allowedGroups: string[] | null;
-  calGroups: CalGroup[];
   onClose: () => void;
   onSaved: () => void;
   defaultDate?: string;
@@ -98,7 +96,7 @@ interface AddModalProps {
   occurrenceDate?: string;
 }
 
-const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, calGroups, onClose, onSaved, defaultDate, defaultTargetCal, editEvent, editMode = "all", occurrenceDate }: AddModalProps) => {
+const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, onClose, onSaved, defaultDate, defaultTargetCal, editEvent, editMode = "all", occurrenceDate }: AddModalProps) => {
   const todayStr = toLocalDate(new Date());
   const isEdit = !!editEvent;
   const useOccurrence = isEdit && (editMode === "this" || editMode === "future");
@@ -124,7 +122,7 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, calGroups, o
   const repeatMap: Record<string, string> = { "なし": "none", "毎週": "weekly", "毎月": "monthly" };
   const repeatLabels = ["なし", "毎週", "毎月"];
   const calMap: Record<string, string> = {};
-  calGroups.forEach((g) => { calMap[g.label] = g.id; });
+  CAL_GROUPS.forEach((g) => { calMap[g.label] = g.id; });
 
   const handleStartTimeChange = (newTime: string) => {
     setStartTime(newTime);
@@ -286,20 +284,20 @@ const AddEventModal = ({ employee, perm, myCalGroup, allowedGroups, calGroups, o
           <div>
             <label style={{ fontSize: 12, color: T.textSec, display: "block", marginBottom: 4 }}>対象</label>
             {canChooseTargetCalendar(perm) ? (
-              <select value={calGroupLabel(calGroups, targetCalendar, "全店舗")}
+              <select value={CAL_GROUPS.find((g) => g.id === targetCalendar)?.label || "全店舗"}
                 onChange={(e) => setTargetCalendar(calMap[e.target.value] || "all")}
                 style={{ width: "100%", padding: "9px 10px", borderRadius: "6px", border: `1px solid ${T.border}`, fontSize: 13 }}>
-                {calGroups.map((g) => <option key={g.id}>{g.label}</option>)}
+                {CAL_GROUPS.map((g) => <option key={g.id}>{g.label}</option>)}
               </select>
             ) : allowedGroups ? (
-              <select value={calGroupLabel(calGroups, targetCalendar, "")}
+              <select value={CAL_GROUPS.find((g) => g.id === targetCalendar)?.label || ""}
                 onChange={(e) => setTargetCalendar(calMap[e.target.value] || myCalGroup)}
                 style={{ width: "100%", padding: "9px 10px", borderRadius: "6px", border: `1px solid ${T.border}`, fontSize: 13 }}>
-                {calGroups.filter((g) => allowedGroups.includes(g.id)).map((g) => <option key={g.id}>{g.label}</option>)}
+                {CAL_GROUPS.filter((g) => allowedGroups.includes(g.id)).map((g) => <option key={g.id}>{g.label}</option>)}
               </select>
             ) : (
               <div style={{ padding: "9px 10px", borderRadius: "6px", border: `1px solid ${T.border}`, fontSize: 13, color: T.textSec, backgroundColor: T.bg }}>
-                {calGroupLabel(calGroups, myCalGroup, "自店舗")}
+                {CAL_GROUPS.find((g) => g.id === myCalGroup)?.label || "自店舗"}
               </div>
             )}
           </div>
@@ -453,7 +451,7 @@ function RecentChanges({ employee, group, surnameRoster }: { employee: any; grou
 }
 
 // ── メンバー一覧コンポーネント ──────────────────────
-function MemberList({ employee, group, calGroups }: { employee: any; group: string; calGroups: CalGroup[] }) {
+function MemberList({ employee, group }: { employee: any; group: string }) {
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -477,7 +475,7 @@ function MemberList({ employee, group, calGroups }: { employee: any; group: stri
   return (
     <div style={{ padding: "0 2px" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: T.textMuted, padding: "8px 0 6px" }}>
-        {calGroupLabel(calGroups, group)}　{members.length}名
+        {CAL_GROUPS.find(g => g.id === group)?.label || "全店舗"}　{members.length}名
       </div>
       {members.map(m => (
         <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 4px", borderBottom: `1px solid ${T.borderLight}` }}>
@@ -505,7 +503,6 @@ export default function CalendarTab({ employee }: { employee: any }) {
   const [editTarget, setEditTarget] = useState<CustomEvent | null>(null);
   const [sidePanel, setSidePanel] = useState<"recent" | "members" | null>(null);
   const [mobileView, setMobileView] = useState<"calendar" | "recent" | "members">("calendar");
-  const [calGroups, setCalGroups] = useState<CalGroup[]>([]);
 
   const toggleSidePanel = (p: "recent" | "members") => setSidePanel(prev => prev === p ? null : p);
 
@@ -520,10 +517,6 @@ export default function CalendarTab({ employee }: { employee: any }) {
   useEffect(() => {
     setGroup(getDefaultCalendarGroup(perm, employee?.store_id || null, employee?.department || null, empCode));
   }, [perm, employee?.store_id, employee?.department, empCode]);
-
-  useEffect(() => {
-    if (employee?.company_id) fetchCalGroups(employee.company_id).then(setCalGroups);
-  }, [employee?.company_id]);
 
   // レスポンシブ判定（640px以下をモバイルとする）
   const [isMobile, setIsMobile] = useState(false);
@@ -800,10 +793,10 @@ export default function CalendarTab({ employee }: { employee: any }) {
             <select value={group} onChange={(e) => setGroup(e.target.value)}
               style={{ padding: "7px 10px", borderRadius: "6px", border: `1px solid ${T.border}`, fontSize: 12, color: T.textSec }}>
               {allowedGroups
-                ? calGroups.filter((g) => allowedGroups.includes(g.id)).map((g) => (
+                ? CAL_GROUPS.filter((g) => allowedGroups.includes(g.id)).map((g) => (
                     <option key={g.id} value={g.id}>{g.label}</option>
                   ))
-                : calGroups.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)
+                : CAL_GROUPS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)
               }
             </select>
           )}
@@ -956,7 +949,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
               {sidePanel === "recent" && <RecentChanges employee={employee} group={group} surnameRoster={surnameRoster} />}
-              {sidePanel === "members" && <MemberList employee={employee} group={group} calGroups={calGroups} />}
+              {sidePanel === "members" && <MemberList employee={employee} group={group} />}
             </div>
           </div>
         </>
@@ -964,7 +957,7 @@ export default function CalendarTab({ employee }: { employee: any }) {
 
       {/* スマホ: 新着・メンバービュー */}
       {isMobile && mobileView === "recent" && <div style={{ padding: "8px 4px" }}><RecentChanges employee={employee} group={group} surnameRoster={surnameRoster} /></div>}
-      {isMobile && mobileView === "members" && <div style={{ padding: "8px 4px" }}><MemberList employee={employee} group={group} calGroups={calGroups} /></div>}
+      {isMobile && mobileView === "members" && <div style={{ padding: "8px 4px" }}><MemberList employee={employee} group={group} /></div>}
 
       {/* スマホ: 右からスライドインする詳細パネル */}
       {selDay && isMobile && mobileView === "calendar" && (
@@ -1000,7 +993,6 @@ export default function CalendarTab({ employee }: { employee: any }) {
           perm={perm}
           myCalGroup={myCalGroup}
           allowedGroups={allowedGroups}
-          calGroups={calGroups}
           onClose={() => { setModal(false); setEditTarget(null); setEditMode("all"); }}
           onSaved={fetchData}
           defaultDate={selDay ? `${yr}-${String(mo).padStart(2, "0")}-${String(selDay).padStart(2, "0")}` : undefined}

@@ -3,8 +3,7 @@
 // components/tabs/RosterTab.tsx — 名簿タブ（マイページ機能実装済み）
 // ═══════════════════════════════════════════
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { T } from "@/lib/constants";
-import { fetchCalGroups, type CalGroup } from "@/lib/calendarGroups";
+import { T, CAL_GROUPS } from "@/lib/constants";
 import { Avatar, Badge } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
@@ -499,11 +498,7 @@ export default function RosterTab({ employee }: { employee: any }) {
     setLoading(false);
   }, [employee?.company_id]);
 
-  const [calGroups, setCalGroups] = useState<CalGroup[]>([]);
   useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => {
-    if (employee?.company_id) fetchCalGroups(employee.company_id).then(setCalGroups);
-  }, [employee?.company_id]);
 
   const me = useMemo(() => allEmps.find((e) => e.id === employee?.id) || null, [allEmps, employee?.id]);
   const myPerm = getPermLevel(me?.role || null);
@@ -571,7 +566,7 @@ export default function RosterTab({ employee }: { employee: any }) {
         <select value={sf} onChange={(e) => setSf(e.target.value)}
           style={{ padding: "9px 12px", borderRadius: "6px", border: `1px solid ${T.border}`, fontSize: 12, color: T.textSec }}>
           <option value="all">全店舗 ({allEmps.length - 1})</option>
-          {calGroups.filter((g) => g.id !== "all").map((g) => (
+          {CAL_GROUPS.filter((g) => g.id !== "all").map((g) => (
             <option key={g.id} value={g.id}>{g.label} ({storeCounts[g.id] || 0})</option>
           ))}
         </select>
