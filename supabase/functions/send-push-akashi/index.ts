@@ -94,7 +94,7 @@ serve(async (req) => {
       const { data: allEmps } = await sb.from("employees")
         .select("id, employee_code, full_name, store_id, department, employment_type, holiday_calendar, requires_punch, calendar_display_name")
         .eq("company_id", companyId)
-        .or("is_active.is.null,is_active.eq.true")
+        .eq("is_active", true)
         .is("resigned_at", null);
       const { data: stores } = await sb.from("stores")
         .select("id, store_name, short_name")
