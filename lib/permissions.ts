@@ -5,19 +5,10 @@
 // ── ロール定義 ──────────────────────────
 export type PermLevel = "super" | "admin" | "employee";
 
-/**
- * employees.role（日本語）からロールレベルを判定
- * - "全店（代表）" / "全店（専務）" / "全店（人事）" / "全店（本部長）" → super
- * - "健軍店長" / "八代店長" / "経理" / "鈑金塗装" → admin
- * - その他 → employee
- */
 export function getPermLevel(role: string | null): PermLevel {
   if (!role) return "employee";
   if (role === "全店") return "super";
   if (role === "店長" || role === "部門長") return "admin";
-  // TODO: DB移行後に削除 — 旧role値の互換判定
-  if (role === "super" || role.startsWith("全店")) return "super";
-  if (role === "admin" || role.includes("店長") || role.includes("経理") || role.includes("鈑金")) return "admin";
   return "employee";
 }
 

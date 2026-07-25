@@ -122,7 +122,7 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
       store_id: app.store_id,
       employment_type: app.employment_type,
       grade: app.grade,
-      role: app.role || "employee",
+      role: app.role || "一般",
       department: app.department,
       position: app.position,
       work_pattern_code: app.work_pattern_code,
