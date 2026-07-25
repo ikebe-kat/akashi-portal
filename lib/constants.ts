@@ -72,6 +72,10 @@ export const stepMonth = (
   return [ny, nm];
 };
 
+/** 権限ロール（DB値の正規化） */
+export const ROLES = ["全店", "店長", "部門長", "人事限定", "一般"] as const;
+export type Role = (typeof ROLES)[number];
+
 /** パート10日締め期間計算（パート: 当月11日〜翌月10日、正社員: 1日〜末日） */
 export function getDateRange(yr: number, mo: number, isPart: boolean): {
   from: string;

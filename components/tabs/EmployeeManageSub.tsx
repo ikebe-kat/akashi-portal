@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { T } from "@/lib/constants";
+import { T, ROLES } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 import NyushaSheetExport from "@/components/tabs/NyushaSheetExport";
@@ -14,7 +14,6 @@ const EMPLOYMENT_TYPES = ["代表取締役", "正社員", "パート", "特定�
 const HOLIDAY_PATTERNS = ["正社員", "パート"] as const;
 const HOLIDAY_CALENDARS = ["ダイハツ明石西"] as const;
 const WORK_PATTERNS = ["09:00-18:00"] as const;
-const ROLES = ["super", "admin", "employee"] as const;
 const GENDERS = ["男性", "女性"] as const;
 const BANK_TYPES = ["普通", "当座"] as const;
 const DOC_CATEGORIES = ["履歴書", "免許証", "資格証明書", "契約書", "その他"] as const;
