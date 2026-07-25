@@ -184,7 +184,6 @@ const ResignModal = ({ emp, onClose, onSaved }: { emp: EmpRow; onClose: () => vo
     const { data: upd, error } = await supabase.from("employees").update({ is_active: false, resigned_at: resignDate, updated_at: new Date().toISOString() }).eq("id", emp.id).select("id");
     if (error) { setSaving(false); console.error("退職処理 err:", error); onSaved("退職処理に失敗しました: " + error.message); return; }
     if (!upd || upd.length === 0) { setSaving(false); console.error("退職処理 0 rows (RLS?)"); onSaved("退職処理が保存できませんでした（権限設定の可能性）"); return; }
-    await supabase.from("push_subscriptions").delete().eq("employee_id", emp.id);
     setSaving(false);
     onSaved(`${emp.full_name}さんの退職処理が完了しました`); onClose();
   };
