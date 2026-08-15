@@ -58,7 +58,7 @@ interface AttR {
   reason: string | null; late_minutes: number | null; early_leave_minutes: number | null;
   actual_hours: number | null; scheduled_hours: number | null; contract_hours: number | null;
   overtime_hours: number | null; over_under: number | null; is_holiday: boolean | null;
-  employee_note: string | null; admin_note: string | null;
+  employee_note: string | null; admin_memo: string | null;
 }
 
 // 給与計算(calculatePayroll)のパート実働ロジックと完全一致させるためのユーティリティ
@@ -116,7 +116,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const leaveDaysSet = await fetchLeaveDays(employee.company_id, broadStart, broadEnd, "attendance");
 
       const { data: attRaw, error: attErr } = await supabase.from("attendance_daily")
-        .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, actual_hours, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday, employee_note, admin_note")
+        .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, actual_hours, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday, employee_note, admin_memo")
         .eq("company_id", employee.company_id)
         .gte("attendance_date", broadStart).lte("attendance_date", broadEnd)
         .range(0, 99999);
@@ -197,7 +197,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             }
             const noteParts: string[] = [];
             if (a.employee_note && a.employee_note.trim()) noteParts.push(`社員：${a.employee_note.trim()}`);
-            if (a.admin_note && a.admin_note.trim()) noteParts.push(`管理：${a.admin_note.trim()}`);
+            if (a.admin_memo && a.admin_memo.trim()) noteParts.push(`管理：${a.admin_memo.trim()}`);
             memo = noteParts.join(" / ");
             if (a.punch_in_raw || a.punch_in) cI++;
             if (a.punch_out_raw || a.punch_out) cO2++;
