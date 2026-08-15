@@ -58,6 +58,7 @@ interface AttR {
   reason: string | null; late_minutes: number | null; early_leave_minutes: number | null;
   actual_hours: number | null; scheduled_hours: number | null; contract_hours: number | null;
   overtime_hours: number | null; over_under: number | null; is_holiday: boolean | null;
+  employee_note: string | null; admin_note: string | null;
 }
 
 // 給与計算(calculatePayroll)のパート実働ロジックと完全一致させるためのユーティリティ
@@ -115,7 +116,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const leaveDaysSet = await fetchLeaveDays(employee.company_id, broadStart, broadEnd, "attendance");
 
       const { data: attRaw, error: attErr } = await supabase.from("attendance_daily")
-        .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, actual_hours, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday")
+        .select("employee_id, attendance_date, punch_in_raw, punch_out_raw, punch_in, punch_out, break_minutes_self_reported, reason, late_minutes, early_leave_minutes, actual_hours, scheduled_hours, contract_hours, overtime_hours, over_under, is_holiday, employee_note, admin_note")
         .eq("company_id", employee.company_id)
         .gte("attendance_date", broadStart).lte("attendance_date", broadEnd)
         .range(0, 99999);
@@ -138,7 +139,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
 
       /* ══ データ収集 ══ */
       setProgress("データ集計中...");
-      // 個人表カラム（勤務区分削除済み）: 月/日, 曜, 事由, 出勤, 退勤, 遅刻, 早退, 私用外出, 残業, 休出, 所定勤務, 契約, 超過不足
+      // 個人表カラム: 月/日, 曜, 事由, 出勤, 退勤, 休憩, 遅刻, 早退, 私用外出, 残業, 休出, 所定勤務, 実働, 契約, 超過不足, 備考
       interface IPerson { emp: EmpD; rows: string[][]; totRow: string[]; cnt: number[]; kit: string[]; }
       const persons: IPerson[] = [];
       let iCsv = "";
@@ -155,8 +156,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         for (const ds of empHolDates) { if (ds >= empRange.from && ds <= empRange.to) empHols.add(ds); }
 
         iCsv += `【勤務個人表】\r\n${empHdr}\r\n所属CD：${emp.store_code} ${emp.store_name}\r\n社員CD：${emp.employee_code.padStart(6, "0")} ${emp.full_name}\r\n`;
-        iCsv += `月/日,曜,事由, 出勤, 退勤,    遅刻,    早退,私用外出,    残業,    休出,所定勤務,    契約,超過不足\r\n`;
-        let sL = 0, sE = 0, sO = 0, sS = 0, sC = 0, sU = 0;
+        iCsv += `月/日,曜,事由, 出勤, 退勤,    休憩,    遅刻,    早退,私用外出,    残業,    休出,所定勤務,    実働,    契約,超過不足,備考\r\n`;
+        let sL = 0, sE = 0, sO = 0, sS = 0, sC = 0, sU = 0, sB = 0, sA = 0;
         let cW = 0, cR = 0, cI = 0, cO2 = 0, cOt = 0, cSc = 0, cS7 = 0;
         let cY = 0, cK = 0, cKk = 0, cD = 0, cF = 0, cB = 0, cSh = 0;
         const dRows: string[][] = [];
@@ -168,17 +169,22 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           const onLeaveDay = leaveDaysSet.has(leaveKey(emp.id, ds));
           const a = aRaw && onLeaveDay ? { ...aRaw, reason: "休職" as string | null } : aRaw;
           const isHol = empHols.has(ds);
-          let rs = "", pi = "", po = "", lt = "", et = "", ot = "", sc = "", ct = "", ou = "";
+          let rs = "", pi = "", po = "", br = "", lt = "", et = "", ot = "", sc = "", ah = "", ct = "", ou = "", memo = "";
           if (onLeaveDay) {
             rs = "休職";
           } else if (a) {
             rs = mapReason(a.reason);
-            pi = a.punch_in_raw ? tzHHMM(a.punch_in_raw) : fmTimeStr(a.punch_in);
-            po = a.punch_out_raw ? tzHHMM(a.punch_out_raw) : fmTimeStr(a.punch_out);
+            pi = fmTimeStr(a.punch_in);
+            po = fmTimeStr(a.punch_out);
+            if (isPart && a.break_minutes_self_reported && a.break_minutes_self_reported > 0) {
+              br = fmMin(a.break_minutes_self_reported);
+              sB += a.break_minutes_self_reported;
+            }
             if (a.late_minutes && a.late_minutes > 0) { lt = fmMin(a.late_minutes); sL += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { et = fmMin(a.early_leave_minutes); sE += a.early_leave_minutes; }
             if (a.overtime_hours && a.overtime_hours > 0) { ot = fmDec(a.overtime_hours); sO += a.overtime_hours; }
-            if (a.scheduled_hours && a.scheduled_hours > 0) { sc = fmDec(a.scheduled_hours); sS += a.scheduled_hours; }
+            if (!isPart && a.scheduled_hours && a.scheduled_hours > 0) { sc = fmDec(a.scheduled_hours); sS += a.scheduled_hours; }
+            if (a.actual_hours && a.actual_hours > 0) { ah = fmDec(a.actual_hours); sA += a.actual_hours; }
             if (a.contract_hours && a.contract_hours > 0) { ct = fmDec(a.contract_hours); sC += a.contract_hours; }
             if (!isPart && a.actual_hours != null && a.scheduled_hours != null) {
               const hasPunch = !!(a.punch_in_raw || a.punch_in);
@@ -189,6 +195,10 @@ export default function SharoushiSub({ employee }: { employee: any }) {
                 sU += dev;
               }
             }
+            const noteParts: string[] = [];
+            if (a.employee_note && a.employee_note.trim()) noteParts.push(`社員：${a.employee_note.trim()}`);
+            if (a.admin_note && a.admin_note.trim()) noteParts.push(`管理：${a.admin_note.trim()}`);
+            memo = noteParts.join(" / ");
             if (a.punch_in_raw || a.punch_in) cI++;
             if (a.punch_out_raw || a.punch_out) cO2++;
             if (a.overtime_hours && a.overtime_hours > 0) cOt++;
@@ -209,11 +219,12 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           }
           if (isHol && !rs) rs = "休日";
           const dateCol = `${dm}/${dd}`;
-          dRows.push([dateCol, dw, rs, pi, po, lt, et, "", ot, "", sc, ct, ou]);
-          iCsv += [dateCol, dw, pad(rs, 4), pad(pi, 5), pad(po, 5), pad(lt, 8), pad(et, 8), pad("", 8), pad(ot, 8), pad("", 8), pad(sc, 8), pad(ct, 8), pad(ou, 8)].join(",") + "\r\n";
+          const memoCsv = memo.replace(/,/g, "、").replace(/"/g, "”").replace(/[\r\n]+/g, " ");
+          dRows.push([dateCol, dw, rs, pi, po, br, lt, et, "", ot, "", sc, ah, ct, ou, memo]);
+          iCsv += [dateCol, dw, pad(rs, 4), pad(pi, 5), pad(po, 5), pad(br, 8), pad(lt, 8), pad(et, 8), pad("", 8), pad(ot, 8), pad("", 8), pad(sc, 8), pad(ah, 8), pad(ct, 8), pad(ou, 8), memoCsv].join(",") + "\r\n";
         }
-        const totVals = ["", "", "", "", "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmDec(sO) : "", "", sS ? fmDec(sS) : "", sC ? fmDec(sC) : "", sU !== 0 ? fmMin(sU) : ""];
-        iCsv += ["合計 ", "  ", "    ", "     ", "     ", pad(totVals[5], 8), pad(totVals[6], 8), pad("", 8), pad(totVals[8], 8), pad("", 8), pad(totVals[10], 8), pad(totVals[11], 8), pad(totVals[12], 8)].join(",") + "\r\n";
+        const totVals = ["", "", "", "", "", sB ? fmMin(sB) : "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmDec(sO) : "", "", sS ? fmDec(sS) : "", sA ? fmDec(sA) : "", sC ? fmDec(sC) : "", sU !== 0 ? fmMin(sU) : "", ""];
+        iCsv += ["合計 ", "  ", "    ", "     ", "     ", pad(totVals[5], 8), pad(totVals[6], 8), pad(totVals[7], 8), pad("", 8), pad(totVals[9], 8), pad("", 8), pad(totVals[11], 8), pad(totVals[12], 8), pad(totVals[13], 8), pad(totVals[14], 8), ""].join(",") + "\r\n";
         const empHolCount = empHols.size;
         const empDays = empRange.days.length;
         const kitei = empDays - empHolCount;
@@ -372,7 +383,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       setProgress("勤務個人表Excel生成中...");
       const ExcelJS = (await import("exceljs")).default;
       const iWb = new ExcelJS.Workbook();
-      const hdrs = ["月/日", "曜", "事由", "出勤", "退勤", "遅刻", "早退", "私用外出", "残業", "休出", "所定勤務", "契約", "超過不足"];
+      const hdrs = ["月/日", "曜", "事由", "出勤", "退勤", "休憩", "遅刻", "早退", "私用外出", "残業", "休出", "所定勤務", "実働", "契約", "超過不足", "備考"];
       const kLbl = ["規定", "勤務", "有休", "有休残", "公休", "欠勤", "代休", "振替", "病欠"];
       const thinBorder: any = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
       const hdrFill: any = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDDDDD" } };
@@ -405,7 +416,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           }
           r++;
         }
-        const totCells = ["合計", "", "", "", "", ip.totRow[5], ip.totRow[6], "", ip.totRow[8], "", ip.totRow[10], ip.totRow[11], ip.totRow[12]];
+        const totCells = ["合計", "", "", "", "", ip.totRow[5], ip.totRow[6], ip.totRow[7], "", ip.totRow[9], "", ip.totRow[11], ip.totRow[12], ip.totRow[13], ip.totRow[14], ""];
         for (let c = 0; c < totCells.length; c++) {
           const cell = ws.getCell(r, c + 1);
           cell.value = totCells[c]; cell.font = boldFont; cell.alignment = { horizontal: "center" }; cell.border = thinBorder;
@@ -413,7 +424,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
         r++;
         ws.getCell(r, 1).value = `回数　${ip.cnt.join("　")}`; ws.getCell(r, 1).font = smallFont; r++;
         ws.getCell(r, 1).value = kLbl.map((l, k) => `${l} ${ip.kit[k] || ""}`).join("　"); ws.getCell(r, 1).font = smallFont; r++;
-        const colWidths = [7, 3, 5, 6, 6, 6, 6, 7, 6, 5, 7, 6, 7];
+        const colWidths = [7, 3, 5, 6, 6, 6, 6, 6, 7, 6, 5, 7, 6, 6, 7, 20];
         colWidths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
       }
 
