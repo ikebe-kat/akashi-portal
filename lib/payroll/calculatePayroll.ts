@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { AKASHI_COMPANY_ID } from '@/lib/constants';
 import { fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
 import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS } from './configFields';
+import { classifyDayWork } from './dayActualWork';
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -122,32 +123,34 @@ function calculateFulltime(
       hasWarning: false, warningMessage: null, appliedHourlyRate: null,
     };
 
-    if (isHoliday) {
-      if (record?.punch_in && record?.punch_out) {
-        const mins = calcWorkMinutes(record.punch_in, record.punch_out, 60);
-        daily.workMinutes = mins; totalWorkMinutes += mins; workDays++;
-        if (mins > OVERTIME_THRESHOLD_MINUTES) {
-          daily.overtimeMinutes = mins - OVERTIME_THRESHOLD_MINUTES;
-          totalOvertimeMinutes += daily.overtimeMinutes;
-        }
-      }
-    } else if (record?.reason?.includes('有給（全日）')) {
-      paidLeaveDays += 1;
-    } else if (record?.reason?.includes('午前有給') || record?.reason?.includes('午後有給')) {
-      paidLeaveDays += 0.5;
-    } else if (record?.punch_in && record?.punch_out) {
-      const mins = calcWorkMinutes(record.punch_in, record.punch_out, 60);
-      daily.workMinutes = mins; totalWorkMinutes += mins; workDays++;
-      if (mins > OVERTIME_THRESHOLD_MINUTES) {
-        daily.overtimeMinutes = mins - OVERTIME_THRESHOLD_MINUTES;
+    const result = classifyDayWork({
+      punchIn: record?.punch_in ?? null,
+      punchOut: record?.punch_out ?? null,
+      reason: record?.reason ?? null,
+      isPart: false,
+      isHoliday,
+      isLeaveDay,
+      breakMinutesSelfReported: null,
+    });
+    if (result.category === 'work' || result.category === 'holiday_work') {
+      daily.workMinutes = result.minutes;
+      totalWorkMinutes += result.minutes;
+      workDays++;
+      if (result.minutes > OVERTIME_THRESHOLD_MINUTES) {
+        daily.overtimeMinutes = result.minutes - OVERTIME_THRESHOLD_MINUTES;
         totalOvertimeMinutes += daily.overtimeMinutes;
       }
-    } else if (record?.punch_in && !record?.punch_out) {
-      daily.hasWarning = true;
-      daily.warningMessage = `${dateStr}: 退勤打刻漏れ`;
-      warnings.push(daily.warningMessage);
-    } else if (record?.reason?.includes('欠勤') || isLeaveDay) {
+    } else if (result.category === 'paid_leave_full') {
+      paidLeaveDays += 1;
+    } else if (result.category === 'paid_leave_half') {
+      paidLeaveDays += 0.5;
+    } else if (result.category === 'absence') {
       daily.isAbsent = true; absenceDays++;
+    }
+    if (result.hasWarning) {
+      daily.hasWarning = true;
+      daily.warningMessage = `${dateStr}: ${result.warningMessage}`;
+      warnings.push(daily.warningMessage);
     }
     if (!isHoliday && record) {
       const lateMins = record.late_minutes || 0;
@@ -256,10 +259,17 @@ function calculateParttime(
       hasWarning: false, warningMessage: null, appliedHourlyRate: null,
     };
 
-    if (record?.punch_in && record?.punch_out) {
-      const breakMins = record.break_minutes_self_reported ?? 0;
-      const rawMins = calcWorkMinutes(record.punch_in, record.punch_out, breakMins);
-      const mins = Math.floor(rawMins / 15) * 15;
+    const result = classifyDayWork({
+      punchIn: record?.punch_in ?? null,
+      punchOut: record?.punch_out ?? null,
+      reason: record?.reason ?? null,
+      isPart: true,
+      isHoliday: false,
+      isLeaveDay: false,
+      breakMinutesSelfReported: record?.break_minutes_self_reported ?? null,
+    });
+    if (result.category === 'work' || result.category === 'holiday_work') {
+      const mins = result.minutes;
       daily.workMinutes = mins; totalWorkMinutes += mins; workDays++;
       const hasSplitRates = rateSaturday !== rateWeekday || rateSunday !== rateWeekday;
       if (hasSplitRates) {
@@ -276,17 +286,18 @@ function calculateParttime(
         daily.overtimeMinutes = mins - OVERTIME_THRESHOLD_MINUTES;
         totalOvertimeMinutes += daily.overtimeMinutes;
       }
-    } else if (record?.punch_in && !record?.punch_out) {
+    }
+    if (result.hasWarning) {
       daily.hasWarning = true;
-      daily.warningMessage = `${dateStr}: 退勤打刻漏れ`;
+      daily.warningMessage = `${dateStr}: ${result.warningMessage}`;
       warnings.push(daily.warningMessage);
     }
-    if (record?.reason?.includes('有給（全日）')) {
+    if (result.category === 'paid_leave_full') {
       paidLeaveDays += 1;
-      paidLeaveAmount += Math.round((record.scheduled_hours || 0) * rateWeekday);
-    } else if (record?.reason?.includes('午前有給') || record?.reason?.includes('午後有給')) {
+      paidLeaveAmount += Math.round((record?.scheduled_hours || 0) * rateWeekday);
+    } else if (result.category === 'paid_leave_half') {
       paidLeaveDays += 0.5;
-      paidLeaveAmount += Math.round(((record.scheduled_hours || 0) / 2) * rateWeekday);
+      paidLeaveAmount += Math.round(((record?.scheduled_hours || 0) / 2) * rateWeekday);
     }
     dailyDetails.push(daily);
   }
@@ -360,19 +371,6 @@ function getDateRange(start: string, end: string): string[] {
     current.setDate(current.getDate() + 1);
   }
   return dates;
-}
-
-function calcWorkMinutes(clockIn: string, clockOut: string, breakMinutes: number): number {
-  const inTime = parseTime(clockIn), outTime = parseTime(clockOut);
-  if (inTime === null || outTime === null) return 0;
-  return Math.max(0, outTime - inTime - breakMinutes);
-}
-
-function parseTime(timeStr: string): number | null {
-  if (!timeStr) return null;
-  if (timeStr.includes('T')) { const d = new Date(timeStr); return d.getHours() * 60 + d.getMinutes(); }
-  const parts = timeStr.split(':');
-  return parts.length < 2 ? null : parseInt(parts[0]) * 60 + parseInt(parts[1]);
 }
 
 function calcGrossTotal(

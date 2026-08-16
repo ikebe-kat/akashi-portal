@@ -4,6 +4,7 @@ import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 import { fetchEmploymentStatus, fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
+import { classifyDayWork } from "@/lib/payroll/dayActualWork";
 
 const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 
@@ -59,19 +60,6 @@ interface AttR {
   actual_hours: number | null; scheduled_hours: number | null; contract_hours: number | null;
   overtime_hours: number | null; over_under: number | null; is_holiday: boolean | null;
   employee_note: string | null; admin_memo: string | null;
-}
-
-// 給与計算(calculatePayroll)のパート実働ロジックと完全一致させるためのユーティリティ
-function parseTimeToMin(timeStr: string | null): number | null {
-  if (!timeStr) return null;
-  if (timeStr.includes("T")) { const d = new Date(timeStr); return d.getHours() * 60 + d.getMinutes(); }
-  const parts = timeStr.split(":");
-  return parts.length < 2 ? null : parseInt(parts[0]) * 60 + parseInt(parts[1]);
-}
-function calcWorkMin(clockIn: string | null, clockOut: string | null, breakMinutes: number): number {
-  const i = parseTimeToMin(clockIn), o = parseTimeToMin(clockOut);
-  if (i === null || o === null) return 0;
-  return Math.max(0, o - i - breakMinutes);
 }
 
 export default function SharoushiSub({ employee }: { employee: any }) {
@@ -184,7 +172,13 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { et = fmMin(a.early_leave_minutes); sE += a.early_leave_minutes; }
             if (a.overtime_hours && a.overtime_hours > 0) { ot = fmDec(a.overtime_hours); sO += a.overtime_hours; }
             if (!isPart && a.scheduled_hours && a.scheduled_hours > 0) { sc = fmDec(a.scheduled_hours); sS += a.scheduled_hours; }
-            if (a.actual_hours && a.actual_hours > 0) { ah = fmDec(a.actual_hours); sA += a.actual_hours; }
+            // 実働: classifyDayWork で有給/公休/選択休/代休/欠勤/休職を除外した実労働のみ
+            const dayResult = classifyDayWork({
+              punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
+              isPart, isHoliday: isHol, isLeaveDay: false,
+              breakMinutesSelfReported: a.break_minutes_self_reported,
+            });
+            if (dayResult.minutes > 0) { ah = fmMin(dayResult.minutes); sA += dayResult.minutes; }
             if (a.contract_hours && a.contract_hours > 0) { ct = fmDec(a.contract_hours); sC += a.contract_hours; }
             if (!isPart && a.actual_hours != null && a.scheduled_hours != null) {
               const hasPunch = !!(a.punch_in_raw || a.punch_in);
@@ -223,7 +217,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           dRows.push([dateCol, dw, rs, pi, po, br, lt, et, "", ot, "", sc, ah, ct, ou, memo]);
           iCsv += [dateCol, dw, pad(rs, 4), pad(pi, 5), pad(po, 5), pad(br, 8), pad(lt, 8), pad(et, 8), pad("", 8), pad(ot, 8), pad("", 8), pad(sc, 8), pad(ah, 8), pad(ct, 8), pad(ou, 8), memoCsv].join(",") + "\r\n";
         }
-        const totVals = ["", "", "", "", "", sB ? fmMin(sB) : "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmDec(sO) : "", "", sS ? fmDec(sS) : "", sA ? fmDec(sA) : "", sC ? fmDec(sC) : "", sU !== 0 ? fmMin(sU) : "", ""];
+        const totVals = ["", "", "", "", "", sB ? fmMin(sB) : "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmDec(sO) : "", "", sS ? fmDec(sS) : "", sA ? fmMin(sA) : "", sC ? fmDec(sC) : "", sU !== 0 ? fmMin(sU) : "", ""];
         iCsv += ["合計 ", "  ", "    ", "     ", "     ", pad(totVals[5], 8), pad(totVals[6], 8), pad(totVals[7], 8), pad("", 8), pad(totVals[9], 8), pad("", 8), pad(totVals[11], 8), pad(totVals[12], 8), pad(totVals[13], 8), pad(totVals[14], 8), ""].join(",") + "\r\n";
         const empHolCount = empHols.size;
         const empDays = empRange.days.length;
@@ -257,13 +251,13 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (leaveDaysSet.has(leaveKey(ip.emp.id, dateKey))) continue;
             const dow = new Date(dateKey + "T00:00:00").getDay();
             const b = bk[dow === 0 ? 2 : dow === 6 ? 1 : 0];
-            if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) b.w++;
-            if (a.punch_in && a.punch_out) {
-              const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
-              b.sm += Math.floor(raw / 15) * 15;
-            } else if (!a.punch_in && a.actual_hours) {
-              b.sm += Math.round(a.actual_hours * 60);
-            }
+            const dayResult = classifyDayWork({
+              punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
+              isPart: true, isHoliday: false, isLeaveDay: false,
+              breakMinutesSelfReported: a.break_minutes_self_reported,
+            });
+            if (dayResult.category === 'work' || dayResult.category === 'holiday_work') b.w++;
+            b.sm += dayResult.minutes;
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) b.y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -286,13 +280,13 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
             if (leaveDaysSet.has(leaveKey(ip.emp.id, dateKey))) continue;
-            if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
-            if (a.punch_in && a.punch_out) {
-              const raw = calcWorkMin(a.punch_in, a.punch_out, a.break_minutes_self_reported ?? 0);
-              sm += Math.floor(raw / 15) * 15;
-            } else if (!a.punch_in && a.actual_hours) {
-              sm += Math.round(a.actual_hours * 60);
-            }
+            const dayResult = classifyDayWork({
+              punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
+              isPart: true, isHoliday: false, isLeaveDay: false,
+              breakMinutesSelfReported: a.break_minutes_self_reported,
+            });
+            if (dayResult.category === 'work' || dayResult.category === 'holiday_work') w++;
+            sm += dayResult.minutes;
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -311,8 +305,13 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           for (const [dateKey, a] of ma) {
             if (dateKey < sumRange.from || dateKey > sumRange.to) continue;
             if (leaveDaysSet.has(leaveKey(ip.emp.id, dateKey))) continue;
-            if (a.punch_in_raw || a.punch_out_raw || a.punch_in || a.punch_out || (a.reason && !a.is_holiday && a.scheduled_hours && a.scheduled_hours > 0)) w++;
-            if (a.actual_hours) { sm += Math.round(a.actual_hours * 60); }
+            const dayResult = classifyDayWork({
+              punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
+              isPart: false, isHoliday: false, isLeaveDay: false,
+              breakMinutesSelfReported: null,
+            });
+            if (dayResult.category === 'work' || dayResult.category === 'holiday_work') w++;
+            sm += dayResult.minutes;
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
