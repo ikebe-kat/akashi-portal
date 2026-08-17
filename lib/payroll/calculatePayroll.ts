@@ -162,14 +162,15 @@ function calculateFulltime(
     dailyDetails.push(daily);
   }
 
-  const tenureDays = scheduledDaysInPeriod - outOfTenureDays;
-  const isPartialMonth = outOfTenureDays > 0;
-
   let baseSalary = emp.base_salary, positionAllowance = emp.position_allowance;
   let qualificationAllowance = emp.qualification_allowance;
   const deductionDenominator = getDeductionDenominator(scheduledDaysInPeriod);
+  // 通勤は「欠勤/休職/在職外」を引いた出勤日で日割り。分母は欠勤控除と同じ max(所定, 19.66)。
+  const nonPaidDays = outOfTenureDays + absenceDays;
+  const isPartialMonth = nonPaidDays > 0;
+  const paidCommuteDays = Math.max(0, scheduledDaysInPeriod - nonPaidDays);
   let commuteAllowance = isPartialMonth
-    ? Math.round(emp.commute_allowance / deductionDenominator * tenureDays)
+    ? Math.round(emp.commute_allowance / deductionDenominator * paidCommuteDays)
     : emp.commute_allowance;
   let dependentAllowance = emp.dependent_allowance;
   let fixedOvertimeAmount = emp.fixed_overtime_amount;
@@ -182,8 +183,9 @@ function calculateFulltime(
   const excessOvertimeMinutes = Math.max(0, totalOvertimeMinutes - fixedOvertimeMinutes);
   const excessOvertimeAmount = Math.round(overtimeUnitPrice * (excessOvertimeMinutes / 60));
 
+  // 欠勤控除の分子は 基本給+役職+資格+固定残業+扶養+調整 の6項目。通勤は上で日割り済のため含めない。
   const absenceBase = emp.base_salary + emp.position_allowance + emp.qualification_allowance
-    + emp.fixed_overtime_amount + emp.dependent_allowance;
+    + emp.fixed_overtime_amount + emp.dependent_allowance + emp.adjustment_allowance;
   const totalDeductionDays = outOfTenureDays + absenceDays;
   const absenceDeduction = totalDeductionDays > 0
     ? Math.round(absenceBase / deductionDenominator * totalDeductionDays) : 0;
