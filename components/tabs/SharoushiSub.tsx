@@ -172,13 +172,16 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { et = fmMin(a.early_leave_minutes); sE += a.early_leave_minutes; }
             if (a.overtime_hours && a.overtime_hours > 0) { ot = fmDec(a.overtime_hours); sO += a.overtime_hours; }
             if (!isPart && a.scheduled_hours && a.scheduled_hours > 0) { sc = fmDec(a.scheduled_hours); sS += a.scheduled_hours; }
-            // 実働: classifyDayWork で有給/公休/選択休/代休/欠勤/休職を除外した実労働のみ
+            // 実働: classifyDayWork で有給/公休/選択休/代休/欠勤/休職を除外した実労働から、
+            // さらに残業(overtime_hours)を差し引いた所定内実働のみを表示する。
             const dayResult = classifyDayWork({
               punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
               isPart, isHoliday: isHol, isLeaveDay: false,
               breakMinutesSelfReported: a.break_minutes_self_reported,
             });
-            if (dayResult.minutes > 0) { ah = fmMin(dayResult.minutes); sA += dayResult.minutes; }
+            const dayOvertimeMinutes = a.overtime_hours ? Math.round(a.overtime_hours * 60) : 0;
+            const inSchedMinutes = Math.max(0, dayResult.minutes - dayOvertimeMinutes);
+            if (inSchedMinutes > 0) { ah = fmMin(inSchedMinutes); sA += inSchedMinutes; }
             if (a.contract_hours && a.contract_hours > 0) { ct = fmDec(a.contract_hours); sC += a.contract_hours; }
             if (!isPart && a.actual_hours != null && a.scheduled_hours != null) {
               const hasPunch = !!(a.punch_in_raw || a.punch_in);
@@ -257,7 +260,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
               breakMinutesSelfReported: a.break_minutes_self_reported,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') b.w++;
-            b.sm += dayResult.minutes;
+            // 勤務時間は所定内実働（実労働−残業）
+            b.sm += Math.max(0, dayResult.minutes - (a.overtime_hours ? Math.round(a.overtime_hours * 60) : 0));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) b.y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -286,7 +290,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
               breakMinutesSelfReported: a.break_minutes_self_reported,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') w++;
-            sm += dayResult.minutes;
+            // 勤務時間は所定内実働（実労働−残業）
+            sm += Math.max(0, dayResult.minutes - (a.overtime_hours ? Math.round(a.overtime_hours * 60) : 0));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -311,7 +316,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
               breakMinutesSelfReported: null,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') w++;
-            sm += dayResult.minutes;
+            // 勤務時間は所定内実働（実労働−残業）
+            sm += Math.max(0, dayResult.minutes - (a.overtime_hours ? Math.round(a.overtime_hours * 60) : 0));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
