@@ -1,6 +1,8 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { T, displayReason, displayChipLabel, isKoukyuShift, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
+import { T, displayReason, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
+import { fetchHolidaysForEmployee, fetchHolidayCalendarTypesOnDate, fetchHolidaysByCalendarType } from "@/lib/holidayFetch";
+import { hoursToMinutes } from "@/lib/payroll/timeUnits";
 import { Badge, ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
@@ -184,9 +186,10 @@ const EditModal = ({ row, empName, empCode, shiftType, isPart, onClose, onSave }
     const parts = row.reason.split("+").map((s: string) => s.trim());
     const kinmuBuf: string[] = [];
     for (const p of parts) {
-      if (p === "有給（全日）" || p === "選択休（全日）") { setSelZenjitsu(p); continue; }
-      if (p === "午前有給" || p === "午前選択休") { setSelGozen(p); continue; }
-      if (p === "午後有給" || p === "午後選択休") { setSelGogo(p); continue; }
+      // 選択休（明石は未使用）は含めない。既存レコードにあれば selKinmu に残して表示だけする。
+      if (p === "有給（全日）") { setSelZenjitsu(p); continue; }
+      if (p === "午前有給") { setSelGozen(p); continue; }
+      if (p === "午後有給") { setSelGogo(p); continue; }
       const dk = parseDaikyu(p);
       if (dk) {
         if (dk.type === "full") { setDaikyuMode("full"); setDaikyuDate(dk.date); }
@@ -248,41 +251,7 @@ const EditModal = ({ row, empName, empCode, shiftType, isPart, onClose, onSave }
         if (totalRemaining < yukyuDays) { alert(`有給残が不足しています（残: ${totalRemaining}日）`); return; }
       }
     }
-    /* 選択休上限チェック */
-    const kibouDays = (selZenjitsu === "選択休（全日）" ? 1 : 0) + (selGozen === "午前選択休" ? 0.5 : 0) + (selGogo === "午後選択休" ? 0.5 : 0);
-    if (kibouDays > 0) {
-      const { data: empRow } = await supabase.from("employees").select("holiday_pattern, employee_code").eq("employee_code", empCode).maybeSingle();
-      if (empRow && empRow.holiday_pattern && !isKoukyuShift(shiftType)) {
-        const currentMonth = new Date(row.attendance_date).getMonth() + 1;
-        const { data: quotaRow } = await supabase.from("hope_holiday_quotas").select("quota").eq("pattern_name", empRow.holiday_pattern).eq("month", currentMonth).maybeSingle();
-        const quota = quotaRow?.quota ? Number(quotaRow.quota) : 0;
-        if (quota > 0) {
-          let empId: string | null = null;
-          if (row.id.startsWith("empty-")) {
-            const { data: eRow } = await supabase.from("employees").select("id").eq("employee_code", empCode).maybeSingle();
-            empId = eRow?.id || null;
-          } else {
-            const { data: attRow } = await supabase.from("attendance_daily").select("employee_id").eq("id", row.id).maybeSingle();
-            empId = attRow?.employee_id || null;
-          }
-          if (empId) {
-            const startDate = `${row.attendance_date.slice(0,4)}-${row.attendance_date.slice(5,7)}-01`;
-            const endDay = new Date(Number(row.attendance_date.slice(0,4)), Number(row.attendance_date.slice(5,7)), 0).getDate();
-            const endDate = `${row.attendance_date.slice(0,4)}-${row.attendance_date.slice(5,7)}-${String(endDay).padStart(2,"0")}`;
-            const { data: attRows } = await supabase.from("attendance_daily").select("reason, attendance_date").eq("employee_id", empId).gte("attendance_date", startDate).lte("attendance_date", endDate);
-            const usedKibou = (attRows || []).reduce((s: number, r: any) => {
-              if (r.attendance_date === row.attendance_date) return s;
-              if (!r.reason) return s;
-              if (r.reason.includes("選択休（全日）")) return s + 1;
-              if (r.reason.includes("午前選択休") || r.reason.includes("午後選択休")) return s + 0.5;
-              return s;
-            }, 0);
-            const remaining = quota - usedKibou;
-            if (remaining < kibouDays) { alert(`選択休の上限に達しています（残: ${remaining}日 / 上限: ${quota}日）`); return; }
-          }
-        }
-      }
-    }
+    /* 明石は選択休を使わないため上限チェックなし */
     setSaving(true);
     const toRaw = (time: string | null, dateStr: string) => {
       if (!time) return null;
@@ -344,9 +313,8 @@ const EditModal = ({ row, empName, empCode, shiftType, isPart, onClose, onSave }
         </div>
 
         <Dot color={T.holidayRed} label="休暇" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 8 }}>
           <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
-          <Chip label={displayChipLabel("選択休（全日）", shiftType)} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
         </div>
 
 
@@ -458,20 +426,11 @@ const IndividualSub = ({ employee }: { employee: any }) => {
     const calType = emp?.holiday_calendar || null;
 
     // 独立して取得できる3つ(holidays / attendance / leave_days) を並列取得。依存関係が無いので Promise.all で1ラウンドに詰める。
-    const holidayPromise = calType
-      ? supabase.from("holiday_calendars").select("holiday_date")
-          .eq("company_id", employee.company_id)
-          .eq("calendar_type", calType)
-          .gte("holiday_date", startDate)
-          .lte("holiday_date", endDate)
-      : Promise.resolve({ data: [] as any[], error: null } as any);
+    const holidayPromise = fetchHolidaysForEmployee(employee.company_id, calType, startDate, endDate);
     const attPromise = supabase.from("attendance_daily").select("*").eq("employee_id", empId).gte("attendance_date", startDate).lte("attendance_date", endDate).order("attendance_date");
     const leavePromise = fetchLeaveDays(employee.company_id, startDate, endDate, "attendance")
       .catch((e) => { console.error("[AdminTab Individual] fetchLeaveDays threw:", e); return new Set<string>(); });
-    const [hcRes, attRes, leaveDaysSet] = await Promise.all([holidayPromise, attPromise, leavePromise]);
-
-    let holidaySet = new Set<string>();
-    (((hcRes as any).data) || []).forEach((h: any) => { holidaySet.add(h.holiday_date); });
+    const [holidaySet, attRes, leaveDaysSet] = await Promise.all([holidayPromise, attPromise, leavePromise]);
     const data = ((attRes as any).data) as any[] | null;
     const dataMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { dataMap[r.attendance_date] = r; });
@@ -548,8 +507,8 @@ const IndividualSub = ({ employee }: { employee: any }) => {
       if (r.reason?.includes("選択休（全日）")) return;
       if (r.reason === "欠勤") { absentDays++; return; }
       const ah = isSelPartAkashi ? calcPartHours(r.punch_in, r.punch_out, r.break_minutes_self_reported) : r.actual_hours;
-      if (ah != null) { totalMinutes += Math.round(ah * 60); workDays++; }
-      if (r.scheduled_hours != null) scheduledMinutes += Math.round(r.scheduled_hours * 60);
+      if (ah != null) { totalMinutes += hoursToMinutes(ah); workDays++; }
+      if (r.scheduled_hours != null) scheduledMinutes += hoursToMinutes(r.scheduled_hours);
       if (r.late_minutes && r.late_minutes > 0) lateCount++;
       if (r.early_leave_minutes && r.early_leave_minutes > 0) earlyCount++;
     });
@@ -726,9 +685,8 @@ const BulkEditModal = ({ checkedRows, emps, employee, selectedDate, selDow, onCl
         </div>
 
         <Dot color={T.holidayRed} label="休暇" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 8 }}>
           <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
-          <Chip label="選択休（全日）" selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
         </div>
 
 
@@ -811,19 +769,13 @@ const DailySub = ({ employee }: { employee: any }) => {
 
     // 独立して取得できる3つ(holidays / attendance / leaveDays) を並列取得。全部 selectedDate + scopedEmps 由来で相互に依存しない。
     const calTypes = [...new Set(scopedEmps.map(e => e.holiday_calendar).filter(Boolean))] as string[];
-    const hcPromise = calTypes.length > 0
-      ? supabase.from("holiday_calendars").select("calendar_type")
-          .eq("company_id", employee.company_id)
-          .eq("holiday_date", selectedDate)
-          .in("calendar_type", calTypes)
-      : Promise.resolve({ data: [] as any[], error: null } as any);
+    const hcPromise = fetchHolidayCalendarTypesOnDate(employee.company_id, selectedDate, calTypes);
     const attPromise = supabase.from("attendance_daily").select("*").eq("attendance_date", selectedDate).in("employee_id", empIds).order("employee_id");
     const leavePromise = fetchLeaveDays(employee.company_id, selectedDate, selectedDate, "attendance")
       .catch((e) => { console.error("[AdminTab Daily] fetchLeaveDays threw:", e); return new Set<string>(); });
-    const [hcRes, attRes, dailyLeaveSet] = await Promise.all([hcPromise, attPromise, leavePromise]);
-
+    const [holidayCalSet, attRes, dailyLeaveSet] = await Promise.all([hcPromise, attPromise, leavePromise]);
     const holidayByCalType: Record<string, boolean> = {};
-    (((hcRes as any).data) || []).forEach((h: any) => { holidayByCalType[h.calendar_type] = true; });
+    holidayCalSet.forEach((t) => { holidayByCalType[t] = true; });
     const data = ((attRes as any).data) as any[] | null;
     const attMap: Record<string, AttRow> = {};
     (data || []).forEach((r: any) => { attMap[r.employee_id] = r; });
@@ -1041,7 +993,7 @@ const MonthlySub = ({ employee }: { employee: any }) => {
         .eq("company_id", employee.company_id).eq("year_month", yearMonth).limit(1).maybeSingle(),
     ]);
     const varData = (varRes as any).data;
-    const monthScheduled = varData?.scheduled_hours ? Math.round(Number(varData.scheduled_hours) * 60) : 0;
+    const monthScheduled = hoursToMinutes(varData?.scheduled_hours);
     setVarHours(monthScheduled);
 
     scopedEmps = scopedEmps.filter((e: any) => {
@@ -1056,23 +1008,16 @@ const MonthlySub = ({ employee }: { employee: any }) => {
 
     // Level 2: 休日 と 勤怠 を並列取得。両方 scopedEmps 由来の calTypes/empIds に依存。
     const calTypes = [...new Set(scopedEmps.map(e => e.holiday_calendar).filter(Boolean))] as string[];
-    const hcPromise = calTypes.length > 0
-      ? supabase.from("holiday_calendars").select("calendar_type, holiday_date")
-          .eq("company_id", employee.company_id)
-          .gte("holiday_date", broadStart)
-          .lte("holiday_date", broadEnd)
-          .in("calendar_type", calTypes)
-      : Promise.resolve({ data: [] as any[], error: null } as any);
+    const hcPromise = fetchHolidaysByCalendarType(employee.company_id, broadStart, broadEnd, calTypes);
     const attPromise = supabase.from("attendance_daily").select("employee_id, attendance_date, reason, actual_hours, scheduled_hours, overtime_hours, over_under, late_minutes, early_leave_minutes, is_holiday, punch_in, punch_out, break_minutes_self_reported")
       .eq("company_id", employee.company_id)
       .gte("attendance_date", broadStart).lte("attendance_date", broadEnd).in("employee_id", empIds)
       .range(0, 99999);
-    const [hcRes, attRes] = await Promise.all([hcPromise, attPromise]);
+    const [holidayByTypeMap, attRes] = await Promise.all([hcPromise, attPromise]);
 
     const holidaysByCalType: Record<string, string[]> = {};
-    (((hcRes as any).data) || []).forEach((h: any) => {
-      if (!holidaysByCalType[h.calendar_type]) holidaysByCalType[h.calendar_type] = [];
-      holidaysByCalType[h.calendar_type].push(h.holiday_date);
+    holidayByTypeMap.forEach((set, calType) => {
+      holidaysByCalType[calType] = Array.from(set);
     });
     const attData = ((attRes as any).data) as any[] | null;
 
@@ -1101,8 +1046,8 @@ const MonthlySub = ({ employee }: { employee: any }) => {
         if (r.reason === "欠勤") { absences++; return; }
         const ah = isP ? calcPartHours(r.punch_in, r.punch_out, r.break_minutes_self_reported) : r.actual_hours;
         if (ah != null && ah > 0) workDays++;
-        if (ah != null) totalMin += Math.round(Number(ah) * 60);
-        if (r.overtime_hours != null) overtimeMin += Math.round(Number(r.overtime_hours) * 60);
+        if (ah != null) totalMin += hoursToMinutes(ah);
+        if (r.overtime_hours != null) overtimeMin += hoursToMinutes(r.overtime_hours);
         if (r.late_minutes && r.late_minutes > 0) lateCount++;
         if (r.early_leave_minutes && r.early_leave_minutes > 0) earlyCount++;
       });

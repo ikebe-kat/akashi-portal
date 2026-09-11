@@ -1,26 +1,24 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, AKASHI_COMPANY_ID } from "@/lib/constants";
+import { AKASHI_HOLIDAY_CALENDARS } from "@/lib/akashiOptions";
 import { supabase } from "@/lib/supabase";
 import Dialog from "@/components/ui/Dialog";
 
 const DOW = ["日","月","火","水","木","金","土"];
 
-const CALENDAR_TYPES_AKASHI = [
-  { value: "akashi_seishain_a", label: "正社員A" },
-  { value: "akashi_lab", label: "正社員B（ラボ）" },
-];
+// 明石以外（実運用上は明石のみだが将来のため残す）向けのフォールバック
 const CALENDAR_TYPES_DEFAULT = [
-  { value: "大久保店", label: "大久保店" },
-  { value: "魚住店", label: "魚住店" },
+  { code: "大久保店", label: "大久保店" },
+  { code: "魚住店", label: "魚住店" },
 ];
 
 /* ══════════════════════════════════════ */
 /* ── 休日カレンダー設定 ── */
 /* ══════════════════════════════════════ */
 const HolidayCalendarSection = ({ employee }: { employee: any }) => {
-  const calTypes = employee?.company_id === AKASHI_COMPANY_ID ? CALENDAR_TYPES_AKASHI : CALENDAR_TYPES_DEFAULT;
-  const [calType, setCalType] = useState(calTypes[0].value);
+  const calTypes = employee?.company_id === AKASHI_COMPANY_ID ? AKASHI_HOLIDAY_CALENDARS : CALENDAR_TYPES_DEFAULT;
+  const [calType, setCalType] = useState(calTypes[0].code);
   const [yr, setYr] = useState(new Date().getFullYear());
   const [mo, setMo] = useState(new Date().getMonth() + 1);
   const [holidays, setHolidays] = useState<Set<string>>(new Set());
@@ -104,7 +102,7 @@ const HolidayCalendarSection = ({ employee }: { employee: any }) => {
           onChange={(e) => setCalType(e.target.value)}
           style={{ padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 13, color: T.text }}
         >
-          {calTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          {calTypes.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
         </select>
         <button onClick={() => goMonth(-1)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 6, backgroundColor: "#fff", cursor: "pointer", fontSize: 13, color: T.textSec, display: "flex", alignItems: "center", justifyContent: "center" }}>◀</button>
         <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 90, textAlign: "center" }}>{yr}年{mo}月</span>

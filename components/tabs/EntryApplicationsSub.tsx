@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { T } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
+import { AKASHI_HOLIDAY_CALENDARS, labelOfHolidayCalendar } from "@/lib/akashiOptions";
 
 interface EntryApp {
   id: string;
@@ -34,7 +35,6 @@ interface EntryApp {
   department: string | null;
   position: string | null;
   work_pattern_code: string | null;
-  holiday_pattern: string | null;
   holiday_calendar: string | null;
   portal_group_id: string | null;
   weekly_work_days: number | null;
@@ -70,6 +70,9 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
   const [processing, setProcessing] = useState<string | null>(null);
   const [dialogMsg, setDialogMsg] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ app: EntryApp; action: "approve" | "register" } | null>(null);
+  // 承認者が付与する休日カレンダー（正社員のみ必須）。app.id → コード
+  const [holidayCalendarByApp, setHolidayCalendarByApp] = useState<Record<string, string>>({});
+  const setHolidayCal = (appId: string, code: string) => setHolidayCalendarByApp(prev => ({ ...prev, [appId]: code }));
 
   const companyId = employee?.company_id;
 
@@ -78,7 +81,7 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
     setLoading(true);
     const { data } = await supabase
       .from("entry_applications")
-      .select("id,company_id,status,employee_code,full_name,full_name_kana,birth_date,phone,email,postal_code,address,emergency_contact_name,emergency_contact_phone,emergency_contact_relation,bank_name,bank_branch,bank_account_number,bank_account_holder,basic_pension_number,employment_insurance_number,insurance_card_requested,hire_date,store_id,employment_type,grade,role,department,position,work_pattern_code,holiday_pattern,holiday_calendar,portal_group_id,weekly_work_days,weekly_work_hours,requires_punch,pin,paid_leave_grant_date,submitted_at,approved_at,copied_at")
+      .select("id,company_id,status,employee_code,full_name,full_name_kana,birth_date,phone,email,postal_code,address,emergency_contact_name,emergency_contact_phone,emergency_contact_relation,bank_name,bank_branch,bank_account_number,bank_account_holder,basic_pension_number,employment_insurance_number,insurance_card_requested,hire_date,store_id,employment_type,grade,role,department,position,work_pattern_code,holiday_calendar,portal_group_id,weekly_work_days,weekly_work_hours,requires_punch,pin,paid_leave_grant_date,submitted_at,approved_at,copied_at")
       .eq("company_id", companyId)
       .order("submitted_at", { ascending: false });
     setApps(data || []);
@@ -89,6 +92,13 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
 
   const createEmployee = async (app: EntryApp): Promise<{ empId: string | null; error: string | null }> => {
     const code = normalizeEmployeeCode(app.employee_code);
+    const isFulltime = app.employment_type !== "パート" && app.employment_type !== null;
+    // 承認者が指定した休日カレンダー（正社員は必須）
+    const chosenHolidayCal = holidayCalendarByApp[app.id] || null;
+    if (isFulltime && !chosenHolidayCal) {
+      return { empId: null, error: "正社員は休日カレンダーの選択が必須です（画面で選択してから承認/登録してください）" };
+    }
+    // パートは休日カレンダー未使用（シフト登録で管理）→ null にする
 
     const { data: existing } = await supabase
       .from("employees")
@@ -126,8 +136,9 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
       department: app.department,
       position: app.position,
       work_pattern_code: app.work_pattern_code,
-      holiday_pattern: app.holiday_pattern,
-      holiday_calendar: app.holiday_calendar,
+      // holiday_pattern（選択休パターン）は明石では未使用のため送らない。カラム自体は3社共通で KAT の選択休が使うため残す。
+      // 承認画面で選択した休日カレンダー（正社員=必須、パート=null）
+      holiday_calendar: isFulltime ? chosenHolidayCal : null,
       portal_group_id: app.portal_group_id,
       weekly_work_days: app.weekly_work_days,
       weekly_work_hours: app.weekly_work_hours,
@@ -178,7 +189,7 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
       return;
     }
 
-    const { empId, error } = await createEmployee({ ...app, status: "approved" });
+    const { error } = await createEmployee({ ...app, status: "approved" });
     setProcessing(null);
     if (error) {
       setDialogMsg(`承認しました。社員登録エラー: ${error}\n従業員管理から手動登録してください。`);
@@ -190,7 +201,7 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
 
   const handleRegister = async (app: EntryApp) => {
     setProcessing(app.id);
-    const { empId, error } = await createEmployee(app);
+    const { error } = await createEmployee(app);
     setProcessing(null);
     if (error) {
       setDialogMsg("社員登録エラー: " + error);
@@ -245,10 +256,27 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
                 <div>部署: {app.department || "—"}</div>
                 <div>店舗: {app.store_id ? "設定済" : "—"}</div>
                 <div>勤務体系: {app.work_pattern_code || "—"}</div>
-                <div>休日カレンダー: {app.holiday_calendar || "—"}</div>
+                <div>休日カレンダー: {labelOfHolidayCalendar(app.holiday_calendar)}</div>
                 <div>申請日: {app.submitted_at?.slice(0, 10) || "—"}</div>
                 <div>承認日: {app.approved_at?.slice(0, 10) || "—"}</div>
               </div>
+
+              {/* 承認者が付与する休日カレンダー（正社員は必須） */}
+              {(app.status === "submitted" || (app.status === "approved" && !app.copied_at)) && app.employment_type !== "パート" && (
+                <div style={{ marginBottom: 10, padding: 10, backgroundColor: "#F8FAFC", border: `1px solid ${T.border}`, borderRadius: 6 }}>
+                  <label style={{ fontSize: 11, color: T.textSec, display: "block", marginBottom: 4 }}>
+                    休日カレンダー（社員登録前に選択・正社員は必須）
+                  </label>
+                  <select
+                    value={holidayCalendarByApp[app.id] || ""}
+                    onChange={(e) => setHolidayCal(app.id, e.target.value)}
+                    style={{ padding: "6px 10px", borderRadius: 4, border: `1px solid ${T.border}`, fontSize: 13, width: "100%" }}
+                  >
+                    <option value="">選択してください</option>
+                    {AKASHI_HOLIDAY_CALENDARS.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+                  </select>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 8 }}>
                 {app.status === "submitted" && (

@@ -27,7 +27,7 @@ export default function LoginPage() {
   }, [])
 
   // employees + stores（pin は employee_pins から別取得）
-  const EMP_COLS = 'id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)'
+  const EMP_COLS = 'id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, holiday_calendar, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)'
 
   // pin 取得：employee_pins.pin → だめなら employees.pin にフォールバック
   const fetchPin = async (employeeId: string): Promise<string | null> => {

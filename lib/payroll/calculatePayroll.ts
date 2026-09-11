@@ -4,8 +4,17 @@
 import { supabase } from '@/lib/supabase';
 import { AKASHI_COMPANY_ID } from '@/lib/constants';
 import { fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
+import { fetchHolidaysByCalendarType } from '@/lib/holidayFetch';
 import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS } from './configFields';
 import { classifyDayWork } from './dayActualWork';
+
+/**
+ * 給与計算の事前チェックが失敗したときに投げるエラー。
+ * PayrollSub がこのメッセージをそのまま画面に出す前提。
+ */
+export class PayrollPreflightError extends Error {
+  constructor(message: string) { super(message); this.name = 'PayrollPreflightError'; }
+}
 import type {
   PayrollConfig,
   AttendanceRecord,
@@ -16,10 +25,11 @@ import type {
 
 // AKASHI_COMPANY_ID は lib/constants.ts からimport済み
 const OVERTIME_THRESHOLD_MINUTES = 480; // 日次8時間 = 480分
-const AVERAGE_WORK_DAYS = 19.66;        // 日割分母の下限（月平均所定労働日数）
+const AVERAGE_WORK_DAYS = 19.66;        // 通勤手当日割の分母下限（月平均所定労働日数）。欠勤控除・遅刻早退控除には使わない。
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数
 const DEPENDENT_ALLOWANCE_PER_PERSON = 5000; // 扶養手当（1人あたり/月）
-const EXCLUDE_CODES = ['D02', 'D18', 'D49', 'D67']; // KAT WORLD側で給与処理
+// 給与計算の対象外（役員 = requires_punch=false）は employees.requires_punch で判定する。
+// 社員コードの直書き（EXCLUDE_CODES）は廃止した。requires_punch=false の人は 0 円計算になる。
 // 正社員の固定支給項目（payroll_monthly上の列名）。config が唯一の正であり preserve 対象外
 const FULLTIME_CONFIG_FIELDS = new Set([
   'base_salary', 'position_allowance', 'qualification_allowance',
@@ -40,6 +50,48 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
   const employees = await fetchEmployeesWithConfig(broadEarliestStart, broadLatestEnd);
   const holidaysByType = await fetchHolidays(fulltimePeriod.start, fulltimePeriod.end);
 
+  // ============================================
+  // 事前チェック（0円保存の再発を防ぐ）
+  //   D: 給与マスタ（employee_payroll_config）が無い人
+  //   D: 正社員で休日カレンダーが null の人
+  //   E: 入社日が対象期間末日より後（=まだ在職外）の人は対象外にする（除外にしただけで止めない）
+  // 除外条件は「その社員の対象期間末日」を基準にする（正社員=fulltimePeriod.end, パート=parttimePeriod.end）
+  // ============================================
+  const preflightErrors: string[] = [];
+  const targetEmployees: typeof employees = [];
+  for (const emp of employees) {
+    const isParttime = emp.employment_type === 'パート';
+    const periodEnd = isParttime ? parttimePeriod.end : fulltimePeriod.end;
+    // E: 入社日 > 期間末日 → 対象外（退職済み扱いと1箇所にまとめる）
+    if (emp.hire_date && emp.hire_date > periodEnd) continue;
+    // E: 退職日 < 期間開始日 → 対象外（既存 fetchEmployeesWithConfig の OR 条件で拾ってしまう分を排除）
+    const periodStart = isParttime ? parttimePeriod.start : fulltimePeriod.start;
+    if (emp.resigned_at && emp.resigned_at < periodStart) continue;
+
+    // D: 打刻不要な人（例：役員）は対象だが 0 円計算するので config チェックは免除
+    if (emp.requires_punch) {
+      // D-1: employee_payroll_config の有効な行が無い
+      //   正社員: base_salary > 0、パート: hourly_rate_weekday > 0 を必須とする。
+      //   ここが 0/null なら 0円計算になるだけなので、事前に止める。
+      const hasAnyConfig = isParttime
+        ? (emp.hourly_rate_weekday != null && emp.hourly_rate_weekday > 0)
+        : (emp.base_salary != null && emp.base_salary > 0);
+      if (!hasAnyConfig) {
+        preflightErrors.push(`${emp.employee_code} ${emp.employee_name}: 給与マスタが未登録です`);
+      }
+      // D-2: 正社員で休日カレンダー未設定（パートはシフト登録で管理のため対象外）
+      if (!isParttime && !emp.holiday_calendar) {
+        preflightErrors.push(`${emp.employee_code} ${emp.employee_name}: 休日カレンダーが未設定です（正社員は必須）`);
+      }
+    }
+    targetEmployees.push(emp);
+  }
+  if (preflightErrors.length > 0) {
+    throw new PayrollPreflightError(
+      `給与計算の事前チェックに失敗しました。以下を解消してから再実行してください：\n・` + preflightErrors.join('\n・')
+    );
+  }
+
   const allStart = broadEarliestStart;
   const allEnd = fulltimePeriod.end > parttimePeriod.end ? fulltimePeriod.end : parttimePeriod.end;
   const attendance = await fetchAttendance(allStart, allEnd);
@@ -49,9 +101,7 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
 
   const results: PayrollResult[] = [];
 
-  for (const emp of employees) {
-    if (EXCLUDE_CODES.includes(emp.employee_code)) continue;
-
+  for (const emp of targetEmployees) {
     const isParttime = emp.employment_type === 'パート';
     const period = isParttime ? parttimePeriod : fulltimePeriod;
 
@@ -91,7 +141,6 @@ function calculateFulltime(
   const dailyDetails: DailyCalc[] = [];
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, absenceDays = 0, workDays = 0;
   let paidLeaveDays = 0, totalLateEarlyMinutes = 0, outOfTenureDays = 0;
-  const lateEarlyEvents: { date: string; minutes: number }[] = [];
   const warnings: string[] = [];
   const dates = getDateRange(period.start, period.end);
   const scheduledDaysInPeriod = dates.filter(d => !holidays.has(d)).length;
@@ -153,24 +202,21 @@ function calculateFulltime(
       warnings.push(daily.warningMessage);
     }
     if (!isHoliday && record) {
-      const lateMins = record.late_minutes || 0;
-      const earlyMins = record.early_leave_minutes || 0;
-      totalLateEarlyMinutes += lateMins + earlyMins;
-      if (lateMins > 0) lateEarlyEvents.push({ date: dateStr, minutes: lateMins });
-      if (earlyMins > 0) lateEarlyEvents.push({ date: dateStr, minutes: earlyMins });
+      totalLateEarlyMinutes += (record.late_minutes || 0) + (record.early_leave_minutes || 0);
     }
     dailyDetails.push(daily);
   }
 
   let baseSalary = emp.base_salary, positionAllowance = emp.position_allowance;
   let qualificationAllowance = emp.qualification_allowance;
-  const deductionDenominator = getDeductionDenominator(scheduledDaysInPeriod);
-  // 通勤は「欠勤/休職/在職外」を引いた出勤日で日割り。分母は欠勤控除と同じ max(所定, 19.66)。
+  // 通勤日割の分母（従来通り max(所定, 19.66) を維持）。欠勤/遅刻早退控除には使わない。
+  const commuteDenominator = Math.max(scheduledDaysInPeriod, AVERAGE_WORK_DAYS);
+  // 通勤は「欠勤/休職/在職外」を引いた出勤日で日割り。
   const nonPaidDays = outOfTenureDays + absenceDays;
   const isPartialMonth = nonPaidDays > 0;
   const paidCommuteDays = Math.max(0, scheduledDaysInPeriod - nonPaidDays);
   let commuteAllowance = isPartialMonth
-    ? Math.round(emp.commute_allowance / deductionDenominator * paidCommuteDays)
+    ? Math.round(emp.commute_allowance / commuteDenominator * paidCommuteDays)
     : emp.commute_allowance;
   let dependentAllowance = emp.dependent_allowance;
   let fixedOvertimeAmount = emp.fixed_overtime_amount;
@@ -183,17 +229,19 @@ function calculateFulltime(
   const excessOvertimeMinutes = Math.max(0, totalOvertimeMinutes - fixedOvertimeMinutes);
   const excessOvertimeAmount = Math.round(overtimeUnitPrice * (excessOvertimeMinutes / 60));
 
-  // 欠勤控除の分子は 基本給+役職+資格+固定残業+扶養+調整 の6項目。通勤は上で日割り済のため含めない。
-  const absenceBase = emp.base_salary + emp.position_allowance + emp.qualification_allowance
-    + emp.fixed_overtime_amount + emp.dependent_allowance + emp.adjustment_allowance;
+  // 【7月確定ルール】欠勤控除・遅刻早退控除とも共通の分子・分母を使う。
+  //   分子 = 基本給 + 役職手当 + 資格手当 + 扶養手当（固定残業代・調整手当は含めない）
+  //   分母 = その月の所定労働日数 × 8時間
+  //   欠勤:      分子 / (所定日数×8h) × (欠勤日数×8h)   = 分子 / 所定日数 × 欠勤日数
+  //   遅刻早退: 分子 / (所定日数×8h×60min) × 遅刻早退分 = 分子 / (所定日数×8) / 60 × 分
+  // 遅刻早退控除は欠勤の有無に関係なく、全ての遅刻・早退分を控除する（1回目免除は廃止）。
+  const deductionBase = emp.base_salary + emp.position_allowance
+    + emp.qualification_allowance + emp.dependent_allowance;
   const totalDeductionDays = outOfTenureDays + absenceDays;
-  const absenceDeduction = totalDeductionDays > 0
-    ? Math.round(absenceBase / deductionDenominator * totalDeductionDays) : 0;
-
-  const deductibleLateEarlyMinutes = lateEarlyEvents.length > 1
-    ? totalLateEarlyMinutes - lateEarlyEvents[0].minutes : 0;
-  const lateEarlyDeduction = deductibleLateEarlyMinutes > 0 && monthlyStandardHours > 0
-    ? Math.round(absenceBase / monthlyStandardHours / 60 * deductibleLateEarlyMinutes) : 0;
+  const absenceDeduction = (totalDeductionDays > 0 && scheduledDaysInPeriod > 0)
+    ? Math.round(deductionBase / scheduledDaysInPeriod * totalDeductionDays) : 0;
+  const lateEarlyDeduction = (totalLateEarlyMinutes > 0 && monthlyStandardHours > 0)
+    ? Math.round(deductionBase / monthlyStandardHours / 60 * totalLateEarlyMinutes) : 0;
 
   const { grossTotal, cappedDeduction: totalDeduction } = calcGrossTotal(
     baseSalary, positionAllowance, qualificationAllowance,
@@ -353,10 +401,6 @@ export function getParttimePeriod(yearMonth: string) {
   return { start: `${prevYear}-${String(prevMonth).padStart(2, '0')}-11`, end: `${y}-${String(m).padStart(2, '0')}-10` };
 }
 
-function getDeductionDenominator(scheduledDaysInPeriod: number): number {
-  return Math.max(scheduledDaysInPeriod, AVERAGE_WORK_DAYS);
-}
-
 function calculateMonthlyStandardHours(holidays: Set<string>, period: { start: string; end: string }): number {
   return getDateRange(period.start, period.end).filter(d => !holidays.has(d)).length * 8;
 }
@@ -492,15 +536,8 @@ async function fetchAttendance(start: string, end: string): Promise<AttendanceRe
 }
 
 async function fetchHolidays(start: string, end: string): Promise<Map<string, Set<string>>> {
-  const { data, error } = await supabase.from('holiday_calendars')
-    .select('holiday_date, calendar_type').eq('company_id', AKASHI_COMPANY_ID).gte('holiday_date', start).lte('holiday_date', end);
-  if (error) throw new Error(`休日カレンダー取得エラー: ${error.message}`);
-  const byType = new Map<string, Set<string>>();
-  for (const d of (data || [])) {
-    if (!byType.has(d.calendar_type)) byType.set(d.calendar_type, new Set());
-    byType.get(d.calendar_type)!.add(d.holiday_date);
-  }
-  return byType;
+  // 取得処理は lib/holidayFetch.ts に一本化。判定条件は変えていない。
+  return await fetchHolidaysByCalendarType(AKASHI_COMPANY_ID, start, end);
 }
 
 async function fetchLeaveRequests(start: string, end: string): Promise<LeaveRecord[]> {

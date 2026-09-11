@@ -4,7 +4,9 @@ import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 import { fetchEmploymentStatus, fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
+import { fetchHolidaysByCalendarType } from "@/lib/holidayFetch";
 import { classifyDayWork } from "@/lib/payroll/dayActualWork";
+import { hoursToMinutes } from "@/lib/payroll/timeUnits";
 
 const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 
@@ -170,17 +172,20 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             }
             if (a.late_minutes && a.late_minutes > 0) { lt = fmMin(a.late_minutes); sL += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { et = fmMin(a.early_leave_minutes); sE += a.early_leave_minutes; }
-            if (a.overtime_hours && a.overtime_hours > 0) { ot = fmDec(a.overtime_hours); sO += a.overtime_hours; }
-            if (!isPart && a.scheduled_hours && a.scheduled_hours > 0) { sc = fmDec(a.scheduled_hours); sS += a.scheduled_hours; }
-            // 実働: classifyDayWork で有給/公休/選択休/代休/欠勤/休職を除外した実労働から、
-            // さらに残業(overtime_hours)を差し引いた所定内実働のみを表示する。
+            // 日別の残業・所定は DB の overtime_hours・scheduled_hours（NUMERIC 時間）を
+            // hoursToMinutes で分に直してそのまま使う（AdminTab 月次サマリと同じ方式）。
+            // 実働は「実労働 − 残業」= 所定内実働。実労働は DB の actual_hours を使うと
+            // 有給日にみなし所定時間が入るため、classifyDayWork の分をベースにする。
             const dayResult = classifyDayWork({
               punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
               isPart, isHoliday: isHol, isLeaveDay: false,
               breakMinutesSelfReported: a.break_minutes_self_reported,
             });
-            const dayOvertimeMinutes = a.overtime_hours ? Math.round(a.overtime_hours * 60) : 0;
-            const inSchedMinutes = Math.max(0, dayResult.minutes - dayOvertimeMinutes);
+            const dayOtMin = hoursToMinutes(a.overtime_hours);
+            const daySchedMin = !isPart ? hoursToMinutes(a.scheduled_hours) : 0;
+            const inSchedMinutes = Math.max(0, dayResult.minutes - dayOtMin);
+            if (dayOtMin > 0) { ot = fmMin(dayOtMin); sO += dayOtMin; }
+            if (!isPart && daySchedMin > 0) { sc = fmMin(daySchedMin); sS += daySchedMin; }
             if (inSchedMinutes > 0) { ah = fmMin(inSchedMinutes); sA += inSchedMinutes; }
             if (a.contract_hours && a.contract_hours > 0) { ct = fmDec(a.contract_hours); sC += a.contract_hours; }
             if (!isPart && a.actual_hours != null && a.scheduled_hours != null) {
@@ -220,7 +225,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
           dRows.push([dateCol, dw, rs, pi, po, br, lt, et, "", ot, "", sc, ah, ct, ou, memo]);
           iCsv += [dateCol, dw, pad(rs, 4), pad(pi, 5), pad(po, 5), pad(br, 8), pad(lt, 8), pad(et, 8), pad("", 8), pad(ot, 8), pad("", 8), pad(sc, 8), pad(ah, 8), pad(ct, 8), pad(ou, 8), memoCsv].join(",") + "\r\n";
         }
-        const totVals = ["", "", "", "", "", sB ? fmMin(sB) : "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmDec(sO) : "", "", sS ? fmDec(sS) : "", sA ? fmMin(sA) : "", sC ? fmDec(sC) : "", sU !== 0 ? fmMin(sU) : "", ""];
+        // H: 残業(sO)・所定(sS) も分（整数）で積んだので合計行は fmMin で HH:MM に変換する
+        const totVals = ["", "", "", "", "", sB ? fmMin(sB) : "", sL ? fmMin(sL) : "", sE ? fmMin(sE) : "", "", sO ? fmMin(sO) : "", "", sS ? fmMin(sS) : "", sA ? fmMin(sA) : "", sC ? fmDec(sC) : "", sU !== 0 ? fmMin(sU) : "", ""];
         iCsv += ["合計 ", "  ", "    ", "     ", "     ", pad(totVals[5], 8), pad(totVals[6], 8), pad(totVals[7], 8), pad("", 8), pad(totVals[9], 8), pad("", 8), pad(totVals[11], 8), pad(totVals[12], 8), pad(totVals[13], 8), pad(totVals[14], 8), ""].join(",") + "\r\n";
         const empHolCount = empHols.size;
         const empDays = empRange.days.length;
@@ -260,8 +266,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
               breakMinutesSelfReported: a.break_minutes_self_reported,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') b.w++;
-            // 勤務時間は所定内実働（実労働−残業）
-            b.sm += Math.max(0, dayResult.minutes - (a.overtime_hours ? Math.round(a.overtime_hours * 60) : 0));
+            // 勤務時間は所定内実働（実労働−残業）。残業は DB ベース（AdminTab 月次サマリと同じ）。
+            b.sm += Math.max(0, dayResult.minutes - hoursToMinutes(a.overtime_hours));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) b.y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -271,7 +277,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             }
             if (a.late_minutes && a.late_minutes > 0) { b.lc++; b.lm += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { b.ec++; b.em += a.early_leave_minutes; }
-            if (a.overtime_hours) b.om += Math.round(a.overtime_hours * 60);
+            b.om += hoursToMinutes(a.overtime_hours);
           }
           for (let bi = 0; bi < 3; bi++) {
             const b = bk[bi];
@@ -290,8 +296,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
               breakMinutesSelfReported: a.break_minutes_self_reported,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') w++;
-            // 勤務時間は所定内実働（実労働−残業）
-            sm += Math.max(0, dayResult.minutes - (a.overtime_hours ? Math.round(a.overtime_hours * 60) : 0));
+            // 勤務時間は所定内実働（実労働−残業）。残業は DB ベース（AdminTab 月次サマリと同じ）。
+            sm += Math.max(0, dayResult.minutes - hoursToMinutes(a.overtime_hours));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -301,7 +307,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             }
             if (a.late_minutes && a.late_minutes > 0) { lc++; lm += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { ec++; em2 += a.early_leave_minutes; }
-            if (a.overtime_hours) om += Math.round(a.overtime_hours * 60);
+            om += hoursToMinutes(a.overtime_hours);
           }
           sumRows.push({ code: empCode, name: ip.emp.full_name, employmentType: "パート", w, sm, y, sh, k, oth, lc, lm, ec, em: em2, om, um });
           gW += w; gSc += sm; gY += y; gSh += sh; gKk += k; gOth += oth; gLc += lc; gLm += lm; gEc += ec; gEm += em2; gO += om; gU += um;
@@ -316,8 +322,8 @@ export default function SharoushiSub({ employee }: { employee: any }) {
               breakMinutesSelfReported: null,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') w++;
-            // 勤務時間は所定内実働（実労働−残業）
-            sm += Math.max(0, dayResult.minutes - (a.overtime_hours ? Math.round(a.overtime_hours * 60) : 0));
+            // 勤務時間は所定内実働（実労働−残業）。残業は DB ベース（AdminTab 月次サマリと同じ）。
+            sm += Math.max(0, dayResult.minutes - hoursToMinutes(a.overtime_hours));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -327,7 +333,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             }
             if (a.late_minutes && a.late_minutes > 0) { lc++; lm += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { ec++; em2 += a.early_leave_minutes; }
-            if (a.overtime_hours) om += Math.round(a.overtime_hours * 60);
+            om += hoursToMinutes(a.overtime_hours);
             {
               const hasPunch = !!(a.punch_in_raw || a.punch_in);
               const isLeave = a.reason && /有給|欠勤|公休|選択休|希望休|代休/.test(a.reason);
