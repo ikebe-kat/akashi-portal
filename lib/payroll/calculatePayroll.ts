@@ -25,7 +25,15 @@ import type {
 
 // AKASHI_COMPANY_ID は lib/constants.ts からimport済み
 const OVERTIME_THRESHOLD_MINUTES = 480; // 日次8時間 = 480分
-const AVERAGE_WORK_DAYS = 19.66;        // 通勤手当日割の分母下限（月平均所定労働日数）。欠勤控除・遅刻早退控除には使わない。
+// 【就業規則 第30条】1か月平均所定労働日数（明石の正社員=日給月給者）。
+// 通勤手当の日割り分母下限と、欠勤・遅刻早退控除の分母（× 8時間 = 157.28h）で共用する。
+const AVERAGE_WORK_DAYS = 19.66;
+// 【就業規則 第30条】控除単価の分母 = 1か月平均所定労働時間（毎月同じ）。
+//   AVERAGE_WORK_DAYS × 8 = 19.66 × 8 = 157.28 時間
+const DEDUCTION_UNIT_HOURS = AVERAGE_WORK_DAYS * 8;
+// 【就業規則 第30条】改訂日。対象期間の開始日 (period.start) がこの日以降なら
+// 欠勤の初日から控除、この日より前なら3日目から控除（改訂前規定）。
+const SHUKIN_KISOKU_REVISION_DATE = '2026-09-01';
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数
 const DEPENDENT_ALLOWANCE_PER_PERSON = 5000; // 扶養手当（1人あたり/月）
 // 給与計算の対象外（役員 = requires_punch=false）は employees.requires_punch で判定する。
@@ -140,7 +148,7 @@ function calculateFulltime(
 ): PayrollResult {
   const dailyDetails: DailyCalc[] = [];
   let totalWorkMinutes = 0, totalOvertimeMinutes = 0, absenceDays = 0, workDays = 0;
-  let paidLeaveDays = 0, totalLateEarlyMinutes = 0, outOfTenureDays = 0;
+  let paidLeaveDays = 0, totalLateEarlyMinutes = 0, outOfTenureDays = 0, leaveDays = 0;
   const warnings: string[] = [];
   const dates = getDateRange(period.start, period.end);
   const scheduledDaysInPeriod = dates.filter(d => !holidays.has(d)).length;
@@ -194,7 +202,12 @@ function calculateFulltime(
     } else if (result.category === 'paid_leave_half') {
       paidLeaveDays += 0.5;
     } else if (result.category === 'absence') {
-      daily.isAbsent = true; absenceDays++;
+      // 【就業規則 第30条】休職日は無給日として日割りには含めるが、欠勤控除には含めない。
+      if (isLeaveDay) {
+        leaveDays++;
+      } else {
+        daily.isAbsent = true; absenceDays++;
+      }
     }
     if (result.hasWarning) {
       daily.hasWarning = true;
@@ -209,10 +222,10 @@ function calculateFulltime(
 
   let baseSalary = emp.base_salary, positionAllowance = emp.position_allowance;
   let qualificationAllowance = emp.qualification_allowance;
-  // 通勤日割の分母（従来通り max(所定, 19.66) を維持）。欠勤/遅刻早退控除には使わない。
+  // 通勤日割の分母（既存の入社月・退職月の日割りの式：max(所定, 19.66)。式は変えない）。
   const commuteDenominator = Math.max(scheduledDaysInPeriod, AVERAGE_WORK_DAYS);
-  // 通勤は「欠勤/休職/在職外」を引いた出勤日で日割り。
-  const nonPaidDays = outOfTenureDays + absenceDays;
+  // 【就業規則 第30条】無給日 = 入社前・退職後・欠勤・休職。同じ式で日割りする。
+  const nonPaidDays = outOfTenureDays + absenceDays + leaveDays;
   const isPartialMonth = nonPaidDays > 0;
   const paidCommuteDays = Math.max(0, scheduledDaysInPeriod - nonPaidDays);
   let commuteAllowance = isPartialMonth
@@ -220,6 +233,7 @@ function calculateFulltime(
     : emp.commute_allowance;
   let dependentAllowance = emp.dependent_allowance;
   let fixedOvertimeAmount = emp.fixed_overtime_amount;
+  let adjustmentAllowanceLocal = adjustmentAmount;
 
   const overtimeBase = emp.base_salary + emp.position_allowance + emp.qualification_allowance;
   const overtimeUnitPrice = monthlyStandardHours > 0
@@ -227,27 +241,45 @@ function calculateFulltime(
 
   const fixedOvertimeMinutes = (emp.fixed_overtime_hours || 25) * 60;
   const excessOvertimeMinutes = Math.max(0, totalOvertimeMinutes - fixedOvertimeMinutes);
-  const excessOvertimeAmount = Math.round(overtimeUnitPrice * (excessOvertimeMinutes / 60));
+  let excessOvertimeAmount = Math.round(overtimeUnitPrice * (excessOvertimeMinutes / 60));
 
-  // 【7月確定ルール】欠勤控除・遅刻早退控除とも共通の分子・分母を使う。
-  //   分子 = 基本給 + 役職手当 + 資格手当 + 扶養手当（固定残業代・調整手当は含めない）
-  //   分母 = その月の所定労働日数 × 8時間
-  //   欠勤:      分子 / (所定日数×8h) × (欠勤日数×8h)   = 分子 / 所定日数 × 欠勤日数
-  //   遅刻早退: 分子 / (所定日数×8h×60min) × 遅刻早退分 = 分子 / (所定日数×8) / 60 × 分
-  // 遅刻早退控除は欠勤の有無に関係なく、全ての遅刻・早退分を控除する（1回目免除は廃止）。
+  // 【就業規則 第30条】欠勤控除・遅刻早退控除の控除額
+  //   分子 = 基本給 + 役職手当 + 資格手当 + 固定残業手当 + 扶養手当 + 調整手当
+  //         （通勤手当・歩合給は含めない）
+  //   分母 = 1か月平均所定労働時間 = DEDUCTION_UNIT_HOURS (= 157.28h)
+  //   控除対象時間 = 欠勤対象日 × 8 + 遅刻早退の分 / 60
+  //   欠勤の控除対象日数（就業規則第30条 改訂対応）:
+  //     - 対象期間の開始日が 2026-09-01 より前 → 欠勤3日目から控除（1〜2日目は無控除）
+  //     - 対象期間の開始日が 2026-09-01 以降 → 欠勤全日から控除
+  //   合計時間に対して単価を1回だけ掛け、1円未満は Math.floor で切り捨てる。
+  //   単価の段階では丸めない。休職日・入社前・退職後は含めない（無給日として日割り側で反映済）。
+  const isRevisedRule = period.start >= SHUKIN_KISOKU_REVISION_DATE;
+  const deductionAbsentDays = isRevisedRule
+    ? absenceDays
+    : Math.max(0, absenceDays - 2);
   const deductionBase = emp.base_salary + emp.position_allowance
-    + emp.qualification_allowance + emp.dependent_allowance;
-  const totalDeductionDays = outOfTenureDays + absenceDays;
-  const absenceDeduction = (totalDeductionDays > 0 && scheduledDaysInPeriod > 0)
-    ? Math.round(deductionBase / scheduledDaysInPeriod * totalDeductionDays) : 0;
-  const lateEarlyDeduction = (totalLateEarlyMinutes > 0 && monthlyStandardHours > 0)
-    ? Math.round(deductionBase / monthlyStandardHours / 60 * totalLateEarlyMinutes) : 0;
+    + emp.qualification_allowance + emp.fixed_overtime_amount
+    + emp.dependent_allowance + adjustmentAmount;
+  const deductionHours = deductionAbsentDays * 8 + totalLateEarlyMinutes / 60;
+  let totalDeduction = deductionHours > 0
+    ? Math.floor(deductionBase / DEDUCTION_UNIT_HOURS * deductionHours)
+    : 0;
 
-  const { grossTotal, cappedDeduction: totalDeduction } = calcGrossTotal(
+  // 【就業規則 第30条】対象期間の所定日がすべて無給日の人は、支給項目をすべて0円にする。
+  // （全期間休職者・全期間退職後・全期間入社前など。paidCommuteDays が 0 のとき）
+  if (scheduledDaysInPeriod > 0 && paidCommuteDays <= 0) {
+    baseSalary = 0; positionAllowance = 0; qualificationAllowance = 0;
+    commuteAllowance = 0; dependentAllowance = 0;
+    fixedOvertimeAmount = 0; adjustmentAllowanceLocal = 0;
+    excessOvertimeAmount = 0; totalDeduction = 0;
+  }
+
+  const { grossTotal, cappedDeduction: totalDeductionCapped } = calcGrossTotal(
     baseSalary, positionAllowance, qualificationAllowance,
     commuteAllowance, dependentAllowance, fixedOvertimeAmount,
-    excessOvertimeAmount, adjustmentAmount, absenceDeduction + lateEarlyDeduction,
+    excessOvertimeAmount, adjustmentAllowanceLocal, totalDeduction,
   );
+  totalDeduction = totalDeductionCapped;
 
   return {
     employee_id: emp.employee_id, employee_code: emp.employee_code,
@@ -262,7 +294,7 @@ function calculateFulltime(
     base_salary: baseSalary, position_allowance: positionAllowance,
     qualification_allowance: qualificationAllowance, commute_allowance: commuteAllowance,
     dependent_allowance: dependentAllowance, fixed_overtime_amount: fixedOvertimeAmount,
-    excess_overtime_amount: excessOvertimeAmount, adjustment_amount: adjustmentAmount,
+    excess_overtime_amount: excessOvertimeAmount, adjustment_amount: adjustmentAllowanceLocal,
     absence_deduction: totalDeduction, paid_leave_days: paidLeaveDays, paid_leave_amount: 0,
     gross_total: grossTotal,
     has_warning: warnings.length > 0, warning_details: warnings,

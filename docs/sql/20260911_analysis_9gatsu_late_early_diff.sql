@@ -1,39 +1,29 @@
 -- ============================================================
--- 【調査SQL】9月支給分（正社員のみ・8/1〜8/31）で
--- 遅刻早退控除・欠勤控除の修正前後の差分を確認する。
+-- 【調査SQL】9月支給分（正社員・対象期間 2026-08-01〜08-31）で
+-- payroll_monthly に保存済みの控除額と、就業規則第30条どおりの新仕様控除額を全員並べる。
 --
--- 修正前は payroll_monthly.absence_deduction に「欠勤控除+遅刻早退控除」が
--- 合算保存されている。修正後の想定額をここで計算して並べる。
--- （このSQLは SELECT のみ。何も書き換えません。実際の再計算は Preview 側で行うこと。）
+-- 新仕様（就業規則第30条・改訂前規定＝欠勤3日目から控除）:
+--   分子 = 基本給 + 役職手当 + 資格手当 + 固定残業手当 + 扶養手当 + 調整手当
+--         （通勤手当・歩合給は含めない）
+--   分母 = 1か月平均所定労働時間 = 157.28h（19.66 × 8）
+--   控除対象時間 = max(0, 欠勤日数 − 2) × 8 + 遅刻早退の分 / 60
+--   控除額 = floor(分子 / 157.28 × 控除対象時間)   -- 単価は丸めず、最終だけ切り捨て
 --
--- 用語:
---   分母 = その月の所定労働日数 × 8時間
---   分子 = 基本給 + 役職 + 資格 + 扶養（固定残業代・調整手当は含めない）
+-- 対象期間の開始日 (2026-08-01) は 2026-09-01 より前 → 3日目からルール適用。
+-- 休職日は絶対控除に含めない（DB の attendance_daily.reason='休職' はデータ側で
+-- 別扱い。本SQLでは「reason='欠勤' の日」を欠勤日として数える）。
 -- ============================================================
 WITH params AS (
   SELECT 2026 AS y, 9 AS m,
          DATE '2026-08-01' AS ps, DATE '2026-08-31' AS pe,
-         'e85e40ac-71f7-4918-b2fc-36d877337b74'::uuid AS cid
+         'e85e40ac-71f7-4918-b2fc-36d877337b74'::uuid AS cid,
+         DATE '2026-09-01' AS rev_date,   -- 就業規則第30条改訂日
+         157.28::numeric AS unit_hours
 ),
--- 社員ごとの所定日数（休日カレンダーの休日を引く）
-sched AS (
-  SELECT e.id AS employee_id,
-    (SELECT COUNT(*)::int FROM generate_series(p.ps, p.pe, '1 day') d
-      WHERE d::date NOT IN (
-        SELECT holiday_date FROM holiday_calendars
-          WHERE company_id = p.cid
-            AND calendar_type = e.holiday_calendar
-            AND holiday_date BETWEEN p.ps AND p.pe
-      )
-    ) AS sched_days
-  FROM employees e, params p
-  WHERE e.company_id = p.cid AND e.employment_type <> 'パート' AND e.requires_punch = true
-),
--- 遅刻・早退・欠勤の集計
 kins AS (
   SELECT ad.employee_id,
-         SUM(COALESCE(ad.late_minutes,0) + COALESCE(ad.early_leave_minutes,0)) AS late_early_min,
-         SUM(CASE WHEN ad.reason = '欠勤' THEN 1 ELSE 0 END) AS absent_days
+    SUM(CASE WHEN ad.reason = '欠勤' THEN 1 ELSE 0 END) AS absent_days,
+    SUM(COALESCE(ad.late_minutes,0) + COALESCE(ad.early_leave_minutes,0)) AS late_early_min
   FROM attendance_daily ad, params p
   WHERE ad.company_id = p.cid
     AND ad.attendance_date BETWEEN p.ps AND p.pe
@@ -41,50 +31,46 @@ kins AS (
   GROUP BY ad.employee_id
 )
 SELECT
-  e.employee_code, e.full_name,
-  s.sched_days AS 所定日数,
-  COALESCE(k.absent_days, 0) AS 欠勤日,
-  COALESCE(k.late_early_min, 0) AS 遅刻早退合計分,
-  -- 修正前の payroll_monthly に保存されている「欠勤+遅刻早退」合算控除
-  pm.absence_deduction AS 現_控除合計,
-  pm.total_payment AS 現_支給合計,
-  -- 修正後の分子（4項目）
+  e.employee_code,
+  e.full_name,
+  COALESCE(k.absent_days, 0)     AS 欠勤日数,
+  COALESCE(k.late_early_min, 0)  AS 遅刻早退分,
+  -- 保存済み（本番）の合算控除額
+  COALESCE(pm.absence_deduction, 0) AS 保存済_控除額,
+  COALESCE(pm.total_payment, 0)     AS 保存済_支給合計,
+  -- 新仕様の分子（6項目）
   (COALESCE(pm.base_salary,0) + COALESCE(pm.position_allowance,0)
-   + COALESCE(pm.qualification_allowance,0) + COALESCE(pm.dependent_allowance,0)) AS 新_分子_4項目,
-  -- 修正後の欠勤控除
-  ROUND(
+   + COALESCE(pm.qualification_allowance,0) + COALESCE(pm.fixed_overtime,0)
+   + COALESCE(pm.dependent_allowance,0) + COALESCE(pm.adjustment_allowance,0)) AS 新_分子_6項目,
+  -- 新仕様の控除対象時間
+  (GREATEST(COALESCE(k.absent_days, 0) - 2, 0) * 8
+   + COALESCE(k.late_early_min, 0) / 60.0)::numeric AS 新_控除対象時間,
+  -- 新仕様の控除額（floor）
+  FLOOR(
     (COALESCE(pm.base_salary,0) + COALESCE(pm.position_allowance,0)
-     + COALESCE(pm.qualification_allowance,0) + COALESCE(pm.dependent_allowance,0))
-    * COALESCE(k.absent_days, 0)::numeric
-    / NULLIF(s.sched_days, 0), 0) AS 新_欠勤控除,
-  -- 修正後の遅刻早退控除
-  ROUND(
+     + COALESCE(pm.qualification_allowance,0) + COALESCE(pm.fixed_overtime,0)
+     + COALESCE(pm.dependent_allowance,0) + COALESCE(pm.adjustment_allowance,0))::numeric
+    / (SELECT unit_hours FROM params)
+    * (GREATEST(COALESCE(k.absent_days, 0) - 2, 0) * 8
+       + COALESCE(k.late_early_min, 0) / 60.0)
+  ) AS 新_控除額,
+  -- 差額（プラス=追加控除、マイナス=返金）
+  FLOOR(
     (COALESCE(pm.base_salary,0) + COALESCE(pm.position_allowance,0)
-     + COALESCE(pm.qualification_allowance,0) + COALESCE(pm.dependent_allowance,0))
-    * COALESCE(k.late_early_min, 0)::numeric
-    / NULLIF(s.sched_days * 8 * 60, 0), 0) AS 新_遅刻早退控除,
-  -- 修正後の合算控除
-  ROUND(
-    (COALESCE(pm.base_salary,0) + COALESCE(pm.position_allowance,0)
-     + COALESCE(pm.qualification_allowance,0) + COALESCE(pm.dependent_allowance,0))
-    * (COALESCE(k.absent_days,0)::numeric / NULLIF(s.sched_days, 0)
-      + COALESCE(k.late_early_min,0)::numeric / NULLIF(s.sched_days * 8 * 60, 0)), 0
-  ) AS 新_控除合計,
-  -- 差分（プラス = 追加控除、マイナス = 控除減）
-  ROUND(
-    (COALESCE(pm.base_salary,0) + COALESCE(pm.position_allowance,0)
-     + COALESCE(pm.qualification_allowance,0) + COALESCE(pm.dependent_allowance,0))
-    * (COALESCE(k.absent_days,0)::numeric / NULLIF(s.sched_days, 0)
-      + COALESCE(k.late_early_min,0)::numeric / NULLIF(s.sched_days * 8 * 60, 0)), 0
-  ) - COALESCE(pm.absence_deduction, 0) AS 控除差分
+     + COALESCE(pm.qualification_allowance,0) + COALESCE(pm.fixed_overtime,0)
+     + COALESCE(pm.dependent_allowance,0) + COALESCE(pm.adjustment_allowance,0))::numeric
+    / (SELECT unit_hours FROM params)
+    * (GREATEST(COALESCE(k.absent_days, 0) - 2, 0) * 8
+       + COALESCE(k.late_early_min, 0) / 60.0)
+  ) - COALESCE(pm.absence_deduction, 0) AS 控除差額
 FROM employees e
-JOIN sched s ON s.employee_id = e.id
 LEFT JOIN kins k ON k.employee_id = e.id
 LEFT JOIN payroll_monthly pm
-  ON pm.employee_id = e.id AND pm.company_id = e.company_id
- AND pm.target_year = (SELECT y FROM params) AND pm.target_month = (SELECT m FROM params)
+  ON pm.employee_id = e.id
+ AND pm.company_id = e.company_id
+ AND pm.target_year = (SELECT y FROM params)
+ AND pm.target_month = (SELECT m FROM params)
 WHERE e.company_id = (SELECT cid FROM params)
   AND e.employment_type <> 'パート'
   AND e.requires_punch = true
-  AND (COALESCE(k.absent_days,0) > 0 OR COALESCE(k.late_early_min,0) > 0)
 ORDER BY e.employee_code;
