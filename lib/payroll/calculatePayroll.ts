@@ -224,12 +224,13 @@ function calculateFulltime(
   let qualificationAllowance = emp.qualification_allowance;
   // 通勤日割の分母（既存の入社月・退職月の日割りの式：max(所定, 19.66)。式は変えない）。
   const commuteDenominator = Math.max(scheduledDaysInPeriod, AVERAGE_WORK_DAYS);
-  // 【就業規則 第30条】無給日 = 入社前・退職後・欠勤・休職。同じ式で日割りする。
-  const nonPaidDays = outOfTenureDays + absenceDays + leaveDays;
+  // 【就業規則 第30条】無給日 = 入社前・退職後・休職（欠勤は含めない：欠勤は第30条控除で扱う）。
+  // 通勤手当と月給の日割り（入社月・退職月・月途中の休職）は無給日でのみ発生させる。
+  const nonPaidDays = outOfTenureDays + leaveDays;
   const isPartialMonth = nonPaidDays > 0;
-  const paidCommuteDays = Math.max(0, scheduledDaysInPeriod - nonPaidDays);
+  const paidDays = Math.max(0, scheduledDaysInPeriod - nonPaidDays);
   let commuteAllowance = isPartialMonth
-    ? Math.round(emp.commute_allowance / commuteDenominator * paidCommuteDays)
+    ? Math.round(emp.commute_allowance / commuteDenominator * paidDays)
     : emp.commute_allowance;
   let dependentAllowance = emp.dependent_allowance;
   let fixedOvertimeAmount = emp.fixed_overtime_amount;
@@ -243,31 +244,41 @@ function calculateFulltime(
   const excessOvertimeMinutes = Math.max(0, totalOvertimeMinutes - fixedOvertimeMinutes);
   let excessOvertimeAmount = Math.round(overtimeUnitPrice * (excessOvertimeMinutes / 60));
 
-  // 【就業規則 第30条】欠勤控除・遅刻早退控除の控除額
-  //   分子 = 基本給 + 役職手当 + 資格手当 + 固定残業手当 + 扶養手当 + 調整手当
-  //         （通勤手当・歩合給は含めない）
-  //   分母 = 1か月平均所定労働時間 = DEDUCTION_UNIT_HOURS (= 157.28h)
+  // 分子は日割り控除・第30条控除で共通：6項目。通勤手当・歩合給は含めない。
+  const deductionBase = emp.base_salary + emp.position_allowance
+    + emp.qualification_allowance + emp.fixed_overtime_amount
+    + emp.dependent_allowance + adjustmentAmount;
+
+  // 【入社月・退職月・月途中の休職の日割り】9fb9a78 時点の式をそのまま維持:
+  //   分母 = max(所定, 19.66)、分子 × 無給日数
+  //   欠勤日は含めない（欠勤は下の第30条控除で扱う。二重控除を防ぐ）。
+  const daywariDeduction = nonPaidDays > 0
+    ? Math.round(deductionBase / commuteDenominator * nonPaidDays)
+    : 0;
+
+  // 【就業規則 第30条】欠勤控除・遅刻早退控除
+  //   分母 = 1か月平均所定労働時間 = DEDUCTION_UNIT_HOURS (= 157.28h、毎月同じ)
   //   控除対象時間 = 欠勤対象日 × 8 + 遅刻早退の分 / 60
-  //   欠勤の控除対象日数（就業規則第30条 改訂対応）:
-  //     - 対象期間の開始日が 2026-09-01 より前 → 欠勤3日目から控除（1〜2日目は無控除）
-  //     - 対象期間の開始日が 2026-09-01 以降 → 欠勤全日から控除
-  //   合計時間に対して単価を1回だけ掛け、1円未満は Math.floor で切り捨てる。
-  //   単価の段階では丸めない。休職日・入社前・退職後は含めない（無給日として日割り側で反映済）。
+  //   欠勤の控除対象日数:
+  //     - 対象期間の開始日が 2026-09-01 より前 → max(0, 欠勤日数 − 2)（3日目から控除）
+  //     - 対象期間の開始日が 2026-09-01 以降 → 欠勤全日
+  //   欠勤時間と遅刻早退時間を合算してから単価を1回だけ掛け、Math.floor で切り捨て。
+  //   単価の段階では丸めない。
   const isRevisedRule = period.start >= SHUKIN_KISOKU_REVISION_DATE;
   const deductionAbsentDays = isRevisedRule
     ? absenceDays
     : Math.max(0, absenceDays - 2);
-  const deductionBase = emp.base_salary + emp.position_allowance
-    + emp.qualification_allowance + emp.fixed_overtime_amount
-    + emp.dependent_allowance + adjustmentAmount;
-  const deductionHours = deductionAbsentDays * 8 + totalLateEarlyMinutes / 60;
-  let totalDeduction = deductionHours > 0
-    ? Math.floor(deductionBase / DEDUCTION_UNIT_HOURS * deductionHours)
+  const kisokuHours = deductionAbsentDays * 8 + totalLateEarlyMinutes / 60;
+  const kisokuDeduction = kisokuHours > 0
+    ? Math.floor(deductionBase / DEDUCTION_UNIT_HOURS * kisokuHours)
     : 0;
 
-  // 【就業規則 第30条】対象期間の所定日がすべて無給日の人は、支給項目をすべて0円にする。
-  // （全期間休職者・全期間退職後・全期間入社前など。paidCommuteDays が 0 のとき）
-  if (scheduledDaysInPeriod > 0 && paidCommuteDays <= 0) {
+  let totalDeduction = daywariDeduction + kisokuDeduction;
+
+  // 対象期間の所定日がすべて無給日 (paidDays <= 0) の人は、支給項目をすべて0円にする。
+  // 全期間休職者・全期間退職後・全期間入社前などが該当。欠勤は無給日ではないので、
+  // 全日欠勤の人はここに該当せず、下の cap で第30条控除が支給合計を超えないよう抑える。
+  if (scheduledDaysInPeriod > 0 && paidDays <= 0) {
     baseSalary = 0; positionAllowance = 0; qualificationAllowance = 0;
     commuteAllowance = 0; dependentAllowance = 0;
     fixedOvertimeAmount = 0; adjustmentAllowanceLocal = 0;
