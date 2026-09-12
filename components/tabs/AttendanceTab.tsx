@@ -8,7 +8,6 @@ import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import type { MonthlySummary } from "@/lib/types";
 import Dialog from "@/components/ui/Dialog";
 import { notifyPush } from "@/lib/notifyPush";
-import { calcActualMinutes } from "@/lib/payroll/dayActualWork";
 import { hoursToMinutes } from "@/lib/payroll/timeUnits";
 
 /* ── 小部品 ── */
@@ -197,14 +196,10 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       const pendingLr = leaveRequests.find(lr => lr.status === "pending" && lr.attendance_date === dateStr);
       const rejectedLr = leaveRequests.find(lr => lr.status === "rejected" && lr.attendance_date === dateStr);
       const approvedLr = leaveRequests.find(lr => lr.status === "approved" && lr.attendance_date === dateStr);
-      let wm = 0;
-      // パート実労働は lib/payroll/dayActualWork.ts の calcActualMinutes に一本化。
-      // 日ごとに 15 分切り捨て、休憩は break_minutes_self_reported (null→0)。
-      if (isAkashiPart && rec?.punch_in && rec?.punch_out) {
-        wm = calcActualMinutes(rec.punch_in, rec.punch_out, true, (rec as any).break_minutes_self_reported ?? null);
-      } else if (rec?.actual_hours) {
-        wm = hoursToMinutes(rec.actual_hours);
-      }
+      // パート・正社員とも日別実労働は DB の actual_hours（NUMERIC 時間）を
+      // hoursToMinutes で分に直してそのまま使う。トリガー calculate_attendance が
+      // 有給（全日）で 0 を書くため、有給日は自動的に 0 分になる。
+      const wm = hoursToMinutes(rec?.actual_hours ?? 0);
       days.push({
         day, dow, dateStr,
         pi: rec?.punch_in?.slice(0, 5) ?? null, po: rec?.punch_out?.slice(0, 5) ?? null,

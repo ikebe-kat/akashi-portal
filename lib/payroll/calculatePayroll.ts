@@ -8,6 +8,7 @@ import { fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
 import { fetchHolidaysByCalendarType } from '@/lib/holidayFetch';
 import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS } from './configFields';
 import { classifyDayWork } from './dayActualWork';
+import { hoursToMinutes } from './timeUnits';
 
 /**
  * 給与計算の事前チェックが失敗したときに投げるエラー。
@@ -188,17 +189,18 @@ function calculateFulltime(
       punchIn: record?.punch_in ?? null,
       punchOut: record?.punch_out ?? null,
       reason: record?.reason ?? null,
-      isPart: false,
       isHoliday,
       isLeaveDay,
-      breakMinutesSelfReported: null,
     });
     if (result.category === 'work' || result.category === 'holiday_work') {
-      daily.workMinutes = result.minutes;
-      totalWorkMinutes += result.minutes;
+      // 日別実労働は DB の actual_hours（NUMERIC 時間）を分に直してそのまま使う。
+      // トリガー calculate_attendance が有給（全日）で 0 を書くため、有給日は自動除外。
+      const mins = hoursToMinutes(record?.actual_hours ?? 0);
+      daily.workMinutes = mins;
+      totalWorkMinutes += mins;
       workDays++;
-      if (result.minutes > OVERTIME_THRESHOLD_MINUTES) {
-        daily.overtimeMinutes = result.minutes - OVERTIME_THRESHOLD_MINUTES;
+      if (mins > OVERTIME_THRESHOLD_MINUTES) {
+        daily.overtimeMinutes = mins - OVERTIME_THRESHOLD_MINUTES;
         totalOvertimeMinutes += daily.overtimeMinutes;
       }
     } else if (result.category === 'paid_leave_full') {
@@ -365,13 +367,13 @@ function calculateParttime(
       punchIn: record?.punch_in ?? null,
       punchOut: record?.punch_out ?? null,
       reason: record?.reason ?? null,
-      isPart: true,
       isHoliday: false,
       isLeaveDay: false,
-      breakMinutesSelfReported: record?.break_minutes_self_reported ?? null,
     });
     if (result.category === 'work' || result.category === 'holiday_work') {
-      const mins = result.minutes;
+      // 日別実労働は DB の actual_hours（NUMERIC 時間）を分に直してそのまま使う。
+      // トリガー calculate_attendance が有給（全日）で 0 を書くため、有給日は自動除外。
+      const mins = hoursToMinutes(record?.actual_hours ?? 0);
       daily.workMinutes = mins; totalWorkMinutes += mins; workDays++;
       const hasSplitRates = rateSaturday !== rateWeekday || rateSunday !== rateWeekday;
       if (hasSplitRates) {
@@ -580,7 +582,7 @@ async function fetchEmployeesWithConfig(broadEarliestStart: string, periodEnd: s
 
 async function fetchAttendance(start: string, end: string): Promise<AttendanceRecord[]> {
   const { data, error } = await supabase.from('attendance_daily')
-    .select('id, employee_id, attendance_date, punch_in, punch_out, break_minutes, break_minutes_self_reported, reason, is_holiday, scheduled_hours, late_minutes, early_leave_minutes')
+    .select('id, employee_id, attendance_date, punch_in, punch_out, break_minutes, break_minutes_self_reported, reason, is_holiday, scheduled_hours, late_minutes, early_leave_minutes, actual_hours')
     .eq('company_id', AKASHI_COMPANY_ID).gte('attendance_date', start).lte('attendance_date', end)
     .range(0, 99999);
   if (error) throw new Error(`勤怠データ取得エラー: ${error.message}`);

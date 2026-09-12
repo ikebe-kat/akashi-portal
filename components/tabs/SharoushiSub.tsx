@@ -171,18 +171,14 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             }
             if (a.late_minutes && a.late_minutes > 0) { lt = fmMin(a.late_minutes); sL += a.late_minutes; }
             if (a.early_leave_minutes && a.early_leave_minutes > 0) { et = fmMin(a.early_leave_minutes); sE += a.early_leave_minutes; }
-            // 日別の残業・所定は DB の overtime_hours・scheduled_hours（NUMERIC 時間）を
-            // hoursToMinutes で分に直してそのまま使う（AdminTab 月次サマリと同じ方式）。
-            // 実働は「実労働 − 残業」= 所定内実働。実労働は DB の actual_hours を使うと
-            // 有給日にみなし所定時間が入るため、classifyDayWork の分をベースにする。
-            const dayResult = classifyDayWork({
-              punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
-              isPart, isHoliday: isHol, isLeaveDay: false,
-              breakMinutesSelfReported: a.break_minutes_self_reported,
-            });
+            // 日別の残業・所定・実労働は DB の overtime_hours・scheduled_hours・actual_hours
+            // （NUMERIC 時間）を hoursToMinutes で分に直してそのまま使う。
+            // 実働（所定内実働）は「実労働 − 残業」。トリガー calculate_attendance が
+            // 有給（全日）で actual_hours=0 を書くため、有給日は自動的に 0 になる。
             const dayOtMin = hoursToMinutes(a.overtime_hours);
             const daySchedMin = !isPart ? hoursToMinutes(a.scheduled_hours) : 0;
-            const inSchedMinutes = Math.max(0, dayResult.minutes - dayOtMin);
+            const dayActualMin = hoursToMinutes(a.actual_hours);
+            const inSchedMinutes = Math.max(0, dayActualMin - dayOtMin);
             if (dayOtMin > 0) { ot = fmMin(dayOtMin); sO += dayOtMin; }
             if (!isPart && daySchedMin > 0) { sc = fmMin(daySchedMin); sS += daySchedMin; }
             if (inSchedMinutes > 0) { ah = fmMin(inSchedMinutes); sA += inSchedMinutes; }
@@ -261,12 +257,12 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             const b = bk[dow === 0 ? 2 : dow === 6 ? 1 : 0];
             const dayResult = classifyDayWork({
               punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
-              isPart: true, isHoliday: false, isLeaveDay: false,
-              breakMinutesSelfReported: a.break_minutes_self_reported,
+              isHoliday: false, isLeaveDay: false,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') b.w++;
-            // 勤務時間は所定内実働（実労働−残業）。残業は DB ベース（AdminTab 月次サマリと同じ）。
-            b.sm += Math.max(0, dayResult.minutes - hoursToMinutes(a.overtime_hours));
+            // 勤務時間は所定内実働（実労働−残業）。実労働・残業とも DB の actual_hours・overtime_hours を使う。
+            // 有給（全日）は actual_hours=0 のため自動的に 0 分。
+            b.sm += Math.max(0, hoursToMinutes(a.actual_hours) - hoursToMinutes(a.overtime_hours));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) b.y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -291,12 +287,12 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (leaveDaysSet.has(leaveKey(ip.emp.id, dateKey))) continue;
             const dayResult = classifyDayWork({
               punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
-              isPart: true, isHoliday: false, isLeaveDay: false,
-              breakMinutesSelfReported: a.break_minutes_self_reported,
+              isHoliday: false, isLeaveDay: false,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') w++;
-            // 勤務時間は所定内実働（実労働−残業）。残業は DB ベース（AdminTab 月次サマリと同じ）。
-            sm += Math.max(0, dayResult.minutes - hoursToMinutes(a.overtime_hours));
+            // 勤務時間は所定内実働（実労働−残業）。実労働・残業とも DB の actual_hours・overtime_hours を使う。
+            // 有給（全日）は actual_hours=0 のため自動的に 0 分。
+            sm += Math.max(0, hoursToMinutes(a.actual_hours) - hoursToMinutes(a.overtime_hours));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;
@@ -317,12 +313,12 @@ export default function SharoushiSub({ employee }: { employee: any }) {
             if (leaveDaysSet.has(leaveKey(ip.emp.id, dateKey))) continue;
             const dayResult = classifyDayWork({
               punchIn: a.punch_in, punchOut: a.punch_out, reason: a.reason,
-              isPart: false, isHoliday: false, isLeaveDay: false,
-              breakMinutesSelfReported: null,
+              isHoliday: false, isLeaveDay: false,
             });
             if (dayResult.category === 'work' || dayResult.category === 'holiday_work') w++;
-            // 勤務時間は所定内実働（実労働−残業）。残業は DB ベース（AdminTab 月次サマリと同じ）。
-            sm += Math.max(0, dayResult.minutes - hoursToMinutes(a.overtime_hours));
+            // 勤務時間は所定内実働（実労働−残業）。実労働・残業とも DB の actual_hours・overtime_hours を使う。
+            // 有給（全日）は actual_hours=0 のため自動的に 0 分。
+            sm += Math.max(0, hoursToMinutes(a.actual_hours) - hoursToMinutes(a.overtime_hours));
             if (a.reason) {
               const r = a.reason;
               if (r.includes("有給")) y += (r.includes("午前") || r.includes("午後")) ? 0.5 : 1;

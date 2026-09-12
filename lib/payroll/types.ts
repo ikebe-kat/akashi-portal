@@ -52,6 +52,7 @@ export interface AttendanceRecord {
   scheduled_hours: number | null;            // 所定労働時間（トリガー算出）
   late_minutes: number | null;               // 遅刻分（トリガー算出）
   early_leave_minutes: number | null;        // 早退分（トリガー算出）
+  actual_hours: number | null;               // 実労働時間（トリガー算出。有給日は 0）
 }
 
 export interface DailyCalc {
