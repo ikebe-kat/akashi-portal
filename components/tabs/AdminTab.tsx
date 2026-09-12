@@ -43,7 +43,6 @@ const ALL_SUB_TABS: { id: SubTab; label: string; visibleTo: "owner_only" | "supe
 ];
 const OWNER_CODES = ["D02", "D18", "D67"];
 const SUPER_CODES = ["D02", "D18", "D67"];
-const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 const DOW = ["日","月","火","水","木","金","土"];
 const fmTime = (t: string | null) => t ? t.slice(0,5) : "—";
 const fmHours = (n: number) => { const h = Math.floor(Math.abs(n) / 60); const m = Math.abs(n) % 60; return `${n < 0 ? "-" : ""}${h}:${String(Math.round(m)).padStart(2,"0")}`; };
@@ -966,7 +965,7 @@ const MonthlySub = ({ employee }: { employee: any }) => {
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
       const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, resigned_at, employment_type, employee_payroll_config(shift_type)").eq("company_id", employee.company_id).order("employee_code");
-      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
+      setEmps((ed || []).filter((e: any) => !isExcludedFromAkashiPayroll(e)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", resigned_at: e.resigned_at ? String(e.resigned_at).slice(0, 10) : null, shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
     })();
   }, [employee?.company_id]);
 
@@ -1479,7 +1478,8 @@ export default function AdminTab({ employee }: { employee: any }) {
   const myCode = employee?.employee_code || "";
   const isOwner = OWNER_CODES.includes(myCode);
   const isSuper = SUPER_CODES.includes(myCode);
-  const isHonbu = HONBU_CODES.includes(myCode);
+  // 「操作している人が本部か」は本部店舗 id で判定（社員コード直書きは廃止）。
+  const isHonbu = isExcludedFromAkashiPayroll({ employee_code: myCode, store_id: employee?.store_id });
   const isIwanaga = myCode === "D49";
   const visibleTabs = ALL_SUB_TABS.filter(t => {
     if (isIwanaga) return t.id === "documents" || t.id === "employee_manage" || t.id === "individual" || t.id === "daily" || t.id === "monthly" || t.id === "payroll" || t.id === "sharoushi" || t.id === "shift";
