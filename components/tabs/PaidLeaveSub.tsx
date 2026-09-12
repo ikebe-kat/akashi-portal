@@ -4,6 +4,7 @@ import { T, GRANT_MONTHS, DAYS_FULL, DAYS_PART, AKASHI_COMPANY_ID } from "@/lib/
 import { supabase } from "@/lib/supabase";
 import { fetchEmploymentStatus } from "@/lib/employmentRpc";
 import { toDateStr } from "@/lib/dateUtils";
+import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
 
 /* ── 労基法テーブル定数は lib/constants.ts からimport済み ── */
 
@@ -191,7 +192,7 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
     const curMonthEnd = toDateStr(new Date(curYr, curMo, 0));
     const statusMap = await fetchEmploymentStatus(employee.company_id, curMonthStart, curMonthEnd, "paid_leave");
     const emps: EmpInfo[] = (ed || []).filter((e: any) => {
-      if (["D02","D18","D49","D67"].includes(e.employee_code)) return false;
+      if (isExcludedFromAkashiPayroll(e)) return false;
       return (statusMap.get(e.id) ?? "active") !== "not_employed";
     }).map((e: any) => ({
       id: e.id, code: e.employee_code, name: e.full_name,

@@ -2,7 +2,8 @@
 // akashi-portal 給与計算ロジック
 
 import { supabase } from '@/lib/supabase';
-import { AKASHI_COMPANY_ID, HONBU_EMPLOYEE_CODES } from '@/lib/constants';
+import { AKASHI_COMPANY_ID } from '@/lib/constants';
+import { isExcludedFromAkashiPayroll } from './akashiEmployeeFilter';
 import { fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
 import { fetchHolidaysByCalendarType } from '@/lib/holidayFetch';
 import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS } from './configFields';
@@ -36,12 +37,9 @@ const DEDUCTION_UNIT_HOURS = AVERAGE_WORK_DAYS * 8;
 const SHUKIN_KISOKU_REVISION_DATE = '2026-09-01';
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数
 const DEPENDENT_ALLOWANCE_PER_PERSON = 5000; // 扶養手当（1人あたり/月）
-// KAT本部の役員4名（D02/D18/D49/D67）は明石の給与計算・画面・社労士出力から除外する。
-// 産休中の DA037 など requires_punch=false の人は 0 円行として出す（給与画面に載る）。
-// この2つを employees の1つのフラグで区別する方法が未確定のため、区別する項目が決まる
-// までは HONBU_EMPLOYEE_CODES による社員コード直書きの暫定運用にする。
-// （SharoushiSub / AdminTab など他画面と定義を共有するため lib/constants.ts に集約。）
-const EXCLUDE_EMPLOYEE_CODES: readonly string[] = HONBU_EMPLOYEE_CODES;
+// KAT本部の役員（本部店舗所属）は明石の給与計算・画面・社労士出力から除外する。
+// 判定は lib/payroll/akashiEmployeeFilter.ts の isExcludedFromAkashiPayroll に集約。
+// 産休中の DA037 のような requires_punch=false の人は「対象」であり 0 円行を作る。
 // 正社員の固定支給項目（payroll_monthly上の列名）。config が唯一の正であり preserve 対象外
 const FULLTIME_CONFIG_FIELDS = new Set([
   'base_salary', 'position_allowance', 'qualification_allowance',
@@ -72,8 +70,8 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
   const preflightErrors: string[] = [];
   const targetEmployees: typeof employees = [];
   for (const emp of employees) {
-    // KAT本部4名は明石の給与計算・画面から完全に除外する（0 円行も作らない）。
-    if (EXCLUDE_EMPLOYEE_CODES.includes(emp.employee_code)) continue;
+    // KAT本部の役員（本部店舗所属）は明石の給与計算・画面から完全に除外する（0 円行も作らない）。
+    if (isExcludedFromAkashiPayroll(emp)) continue;
     const isParttime = emp.employment_type === 'パート';
     const periodEnd = isParttime ? parttimePeriod.end : fulltimePeriod.end;
     // E: 入社日 > 期間末日 → 対象外（退職済み扱いと1箇所にまとめる）
@@ -281,10 +279,13 @@ function calculateFulltime(
 
   let totalDeduction = daywariDeduction + kisokuDeduction;
 
-  // 対象期間の所定日がすべて無給日 (paidDays <= 0) の人は、支給項目をすべて0円にする。
-  // 全期間休職者・全期間退職後・全期間入社前などが該当。欠勤は無給日ではないので、
-  // 全日欠勤の人はここに該当せず、下の cap で第30条控除が支給合計を超えないよう抑える。
-  if (scheduledDaysInPeriod > 0 && paidDays <= 0) {
+  // 【就業規則 第30条】対象期間の所定日がすべて無給日（欠勤・休職・入社前・退職後）で
+  // 勤務日が1日も無い人は、支給項目をすべて0円にする。3日目から控除ルールは
+  // 勤務日がある月にだけ適用するため、ここで先に判定して 0 円化する。
+  // 該当例: 全期間休職・全期間退職後・全期間入社前・全日欠勤・および混在で全部無給。
+  const allUnpaidMonth = scheduledDaysInPeriod > 0
+    && (outOfTenureDays + leaveDays + absenceDays >= scheduledDaysInPeriod);
+  if (allUnpaidMonth) {
     baseSalary = 0; positionAllowance = 0; qualificationAllowance = 0;
     commuteAllowance = 0; dependentAllowance = 0;
     fixedOvertimeAmount = 0; adjustmentAllowanceLocal = 0;

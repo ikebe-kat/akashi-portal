@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, displayReason, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import { fetchHolidaysForEmployee, fetchHolidayCalendarTypesOnDate, fetchHolidaysByCalendarType } from "@/lib/holidayFetch";
 import { hoursToMinutes } from "@/lib/payroll/timeUnits";
+import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
 import { Badge, ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
@@ -403,7 +404,7 @@ const IndividualSub = ({ employee }: { employee: any }) => {
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
       const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type, employee_payroll_config(shift_type)").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
-      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
+      setEmps((ed || []).filter((e: any) => !isExcludedFromAkashiPayroll(e)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
     })();
   }, [employee?.company_id]);
 
@@ -753,7 +754,7 @@ const DailySub = ({ employee }: { employee: any }) => {
       const storeMap: Record<string, string> = {};
       storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
       const { data: ed } = await supabase.from("employees").select("id, employee_code, full_name, store_id, department, role, hire_date, paid_leave_grant_date, holiday_calendar, employment_type, employee_payroll_config(shift_type)").eq("company_id", employee.company_id).eq("is_active", true).order("employee_code");
-      setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
+      setEmps((ed || []).filter((e: any) => !isExcludedFromAkashiPayroll(e)).map((e: any) => ({ ...e, code: e.employee_code, name: e.full_name, store_name: storeMap[e.store_id] || "", shift_type: e.employee_payroll_config?.[0]?.shift_type || null })));
     })();
   }, [employee?.company_id]);
 
@@ -1157,8 +1158,8 @@ const RequestsSub = ({ employee }: { employee: any }) => {
   const fetchRequests = useCallback(async () => {
     if (!employee?.company_id) return;
     setLoading(true);
-    const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name").eq("company_id", employee.company_id).eq("is_active", true);
-    const empData = (empDataRaw || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code));
+    const { data: empDataRaw } = await supabase.from("employees").select("id, employee_code, full_name, store_id").eq("company_id", employee.company_id).eq("is_active", true);
+    const empData = (empDataRaw || []).filter((e: any) => !isExcludedFromAkashiPayroll(e));
     const empMap: Record<string, { code: string; name: string }> = {};
     (empData || []).forEach((e: any) => { empMap[e.id] = { code: e.employee_code, name: e.full_name }; });
     const { data } = await supabase.from("change_requests").select("*").eq("company_id", employee.company_id).order("created_at", { ascending: false });

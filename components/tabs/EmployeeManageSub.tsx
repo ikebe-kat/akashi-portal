@@ -7,6 +7,7 @@ import NyushaSheetExport from "@/components/tabs/NyushaSheetExport";
 import { todayJST } from "@/lib/dateUtils";
 import { isValidPin } from "@/lib/pinValidation";
 import { AKASHI_HOLIDAY_CALENDARS, fetchWorkPatterns, labelOfHolidayCalendar, WorkPatternOption } from "@/lib/akashiOptions";
+import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
 
 /* ══════════════════════════════════════ */
 /* ── 選択肢定義（DBに存在する値のみ） ── */
@@ -576,8 +577,7 @@ export default function EmployeeManageSub({ employee }: { employee: any }) {
       const { data: pinRows } = await supabase.from("employee_pins").select("employee_id, pin").in("employee_id", empIds);
       (pinRows || []).forEach((p: any) => { pinMap[p.employee_id] = p.pin; });
     }
-    const HONBU_CODES = ["D02", "D18", "D49", "D67"];
-    setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, store_name: storeMap[e.store_id] || "", pin: pinMap[e.id] ?? null })));
+    setEmps((ed || []).filter((e: any) => !isExcludedFromAkashiPayroll(e)).map((e: any) => ({ ...e, store_name: storeMap[e.store_id] || "", pin: pinMap[e.id] ?? null })));
     setLoading(false);
   }, [employee?.company_id]);
 
