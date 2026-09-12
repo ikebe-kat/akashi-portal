@@ -230,6 +230,8 @@ function calculateFulltime(
   const commuteDenominator = Math.max(scheduledDaysInPeriod, AVERAGE_WORK_DAYS);
   // 【就業規則 第30条】無給日 = 入社前・退職後・休職（欠勤は含めない：欠勤は第30条控除で扱う）。
   // 通勤手当と月給の日割り（入社月・退職月・月途中の休職）は無給日でのみ発生させる。
+  // 【要再確認】通勤手当の日割りに欠勤日を含めるかは、就業規則改訂
+  // （欠勤1日目から控除）に合わせて2026年10月支給分の前に再確認する。
   const nonPaidDays = outOfTenureDays + leaveDays;
   const isPartialMonth = nonPaidDays > 0;
   const paidDays = Math.max(0, scheduledDaysInPeriod - nonPaidDays);
