@@ -51,7 +51,10 @@ function parseTime(timeStr: string): number | null {
   return parts.length < 2 ? null : parseInt(parts[0]) * 60 + parseInt(parts[1]);
 }
 
-function calcActualMinutes(pi: string, po: string, isPart: boolean, breakSelf: number | null): number {
+// パートの日別実働は「休憩=自己申告(null→0)」で計算し、日ごとに 15 分切り捨て。
+// 正社員は「休憩=60分固定」で切り捨てなし。
+// 明石のパート日別実働を扱う関数は必ずこれ1つを使う（AdminTab/PayrollSub/SharoushiSub 共通）。
+export function calcActualMinutes(pi: string, po: string, isPart: boolean, breakSelf: number | null): number {
   const brk = isPart ? (breakSelf ?? 0) : 60;
   const raw = calcWorkMinutes(pi, po, brk);
   return isPart ? Math.floor(raw / 15) * 15 : raw;

@@ -8,6 +8,8 @@ import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import type { MonthlySummary } from "@/lib/types";
 import Dialog from "@/components/ui/Dialog";
 import { notifyPush } from "@/lib/notifyPush";
+import { calcActualMinutes } from "@/lib/payroll/dayActualWork";
+import { hoursToMinutes } from "@/lib/payroll/timeUnits";
 
 /* ── 小部品 ── */
 const SC = ({ l, v, u, c }: { l: string; v: string | number; u?: string; c?: string }) => (
@@ -157,7 +159,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
     const { data: varData } = await supabase
       .from("variable_hours").select("scheduled_hours")
       .eq("company_id", employee.company_id).eq("year_month", yearMonth).limit(1).maybeSingle();
-    setScheduledMin(varData?.scheduled_hours ? Math.round(Number(varData.scheduled_hours) * 60) : 0);
+    setScheduledMin(hoursToMinutes(varData?.scheduled_hours));
 
     // 明石は選択休を使わないため hope_holiday_quotas は参照しない
     const { data: lrData } = await supabase
@@ -187,7 +189,6 @@ export default function AttendanceTab({ employee }: { employee: any }) {
 
   /* ── 日付リスト ── */
   const allDays = useMemo(() => {
-    const toM = (t: string) => { const p = t.split(':'); return Number(p[0]) * 60 + Number(p[1]); };
     const days = [];
     const range = getDateRange(yr, mo, isAkashiPart);
     for (const rd of range.days) {
@@ -197,10 +198,12 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       const rejectedLr = leaveRequests.find(lr => lr.status === "rejected" && lr.attendance_date === dateStr);
       const approvedLr = leaveRequests.find(lr => lr.status === "approved" && lr.attendance_date === dateStr);
       let wm = 0;
+      // パート実労働は lib/payroll/dayActualWork.ts の calcActualMinutes に一本化。
+      // 日ごとに 15 分切り捨て、休憩は break_minutes_self_reported (null→0)。
       if (isAkashiPart && rec?.punch_in && rec?.punch_out) {
-        wm = toM(rec.punch_out.slice(0, 5)) - toM(rec.punch_in.slice(0, 5)) - ((rec as any).break_minutes_self_reported ?? 0);
+        wm = calcActualMinutes(rec.punch_in, rec.punch_out, true, (rec as any).break_minutes_self_reported ?? null);
       } else if (rec?.actual_hours) {
-        wm = Math.round(Number(rec.actual_hours) * 60);
+        wm = hoursToMinutes(rec.actual_hours);
       }
       days.push({
         day, dow, dateStr,
