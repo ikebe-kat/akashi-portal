@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, displayReason, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import { fetchHolidaysForEmployee, fetchHolidayCalendarTypesOnDate, fetchHolidaysByCalendarType } from "@/lib/holidayFetch";
 import { hoursToMinutes } from "@/lib/payroll/timeUnits";
+import { calcActualMinutes } from "@/lib/payroll/dayActualWork";
 import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
 import { Badge, ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
@@ -47,10 +48,16 @@ const DOW = ["日","月","火","水","木","金","土"];
 const fmTime = (t: string | null) => t ? t.slice(0,5) : "—";
 const fmHours = (n: number) => { const h = Math.floor(Math.abs(n) / 60); const m = Math.abs(n) % 60; return `${n < 0 ? "-" : ""}${h}:${String(Math.round(m)).padStart(2,"0")}`; };
 const fmDecimal = (n: number | null) => { if (n == null) return "—"; const tot = Math.round(Math.abs(n) * 60); const h = Math.floor(tot / 60); const m = tot % 60; return `${n < 0 ? "-" : ""}${h}:${String(m).padStart(2,"0")}`; };
-const calcPartHours = (pi: string | null, po: string | null, brk: number | null): number | null => {
-  if (!pi || !po) return null;
-  const toM = (t: string) => { const p = t.split(':'); return Number(p[0]) * 60 + Number(p[1]); };
-  return Math.round((toM(po) - toM(pi) - (brk ?? 0)) / 60 * 100) / 100;
+// パート・正社員の日別実労働を「分（整数）」で返す共通ヘルパー。
+// パートは calcActualMinutes（日ごと15分切り捨て）に一本化。
+// 正社員は DB の actual_hours（NUMERIC 時間）を hoursToMinutes で分に直す。
+// 打刻・値が無ければ null（表示側で "—" に落とす）。
+const actualMinutesForRow = (r: { punch_in: string | null; punch_out: string | null; break_minutes_self_reported: number | null; actual_hours: number | null }, isPart: boolean): number | null => {
+  if (isPart) {
+    if (!r.punch_in || !r.punch_out) return null;
+    return calcActualMinutes(r.punch_in, r.punch_out, true, r.break_minutes_self_reported);
+  }
+  return r.actual_hours != null ? hoursToMinutes(r.actual_hours) : null;
 };
 
 function storeShort(name: string | null, dept?: string | null) {
@@ -506,8 +513,8 @@ const IndividualSub = ({ employee }: { employee: any }) => {
       if (r.reason?.includes("午前有給") || r.reason?.includes("午後有給")) yukyuDays += 0.5;
       if (r.reason?.includes("選択休（全日）")) return;
       if (r.reason === "欠勤") { absentDays++; return; }
-      const ah = isSelPartAkashi ? calcPartHours(r.punch_in, r.punch_out, r.break_minutes_self_reported) : r.actual_hours;
-      if (ah != null) { totalMinutes += hoursToMinutes(ah); workDays++; }
+      const ah = actualMinutesForRow(r, isSelPartAkashi);
+      if (ah != null) { totalMinutes += ah; workDays++; }
       if (r.scheduled_hours != null) scheduledMinutes += hoursToMinutes(r.scheduled_hours);
       if (r.late_minutes && r.late_minutes > 0) lateCount++;
       if (r.early_leave_minutes && r.early_leave_minutes > 0) earlyCount++;
@@ -544,14 +551,14 @@ const IndividualSub = ({ employee }: { employee: any }) => {
           <div style={{ borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}><div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 640 }}>
               <thead><tr style={{ backgroundColor: T.primary }}>{["日付","出勤","退勤","事由",...(isSelPartAkashi ? ["休憩"] : []),"実労働","所定外","備考",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
-              <tbody>{rows.map(r => { const d = new Date(r.attendance_date); const dow = d.getDay(); const isOff = r.is_holiday || r.reason === "公休"; const hasReason = r.reason && r.reason !== "公休"; const ah = isSelPartAkashi ? calcPartHours(r.punch_in, r.punch_out, r.break_minutes_self_reported) : r.actual_hours; return (
+              <tbody>{rows.map(r => { const d = new Date(r.attendance_date); const dow = d.getDay(); const isOff = r.is_holiday || r.reason === "公休"; const hasReason = r.reason && r.reason !== "公休"; const ah = actualMinutesForRow(r, isSelPartAkashi); return (
                 <tr key={r.id} style={{ backgroundColor: isOff ? "#FFF5F5" : hasReason ? "#FFFDE7" : "#fff", borderBottom: `1px solid ${T.borderLight}` }}>
                   <td style={{ padding: "8px 6px", fontWeight: 600, color: dow === 0 ? T.holidayRed : dow === 6 ? T.yukyuBlue : T.text, textAlign: "center", whiteSpace: "nowrap" }}>{isSelPartAkashi ? `${d.getMonth()+1}/${d.getDate()}` : d.getDate()}<span style={{ fontSize: 10, marginLeft: 1, fontWeight: 400 }}>({DOW[dow]})</span></td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_in ? T.text : T.textPH }}>{fmTime(r.punch_in)}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_out ? T.text : T.textPH }}>{fmTime(r.punch_out)}</td>
                   <td style={{ padding: "6px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, selectedEmp?.shift_type) || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
                   {isSelPartAkashi && <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.text }}>{r.break_minutes_self_reported != null ? `${r.break_minutes_self_reported}分` : "—"}</td>}
-                  <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: ah != null ? T.text : T.textPH }}>{ah != null ? fmDecimal(ah) : "—"}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: ah != null ? T.text : T.textPH }}>{ah != null ? fmHours(ah) : "—"}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: (r.over_under ?? 0) > 0 ? T.success : (r.over_under ?? 0) < 0 ? T.danger : T.textMuted }}>{r.over_under != null ? `${r.over_under > 0 ? "+" : ""}${fmDecimal(r.over_under)}` : "—"}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.textSec, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.employee_note || r.admin_memo || "—"}</td>
                   <td style={{ padding: "6px", textAlign: "center" }}><button onClick={() => setEditRow(r)} style={{ padding: "5px 10px", borderRadius: 4, border: "none", backgroundColor: T.primary, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>修正</button></td>
@@ -894,7 +901,7 @@ const DailySub = ({ employee }: { employee: any }) => {
               const isYukyu = r.reason?.includes("有給");
               const hasReason = r.reason && r.reason !== "公休";
               const isP = r.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID;
-              const ah = isP ? calcPartHours(r.punch_in, r.punch_out, r.break_minutes_self_reported) : r.actual_hours;
+              const ah = actualMinutesForRow(r, isP);
               return (
                 <tr key={r.id} style={{ backgroundColor: isOff ? "#FFF5F5" : isYukyu ? "#EFF6FF" : hasReason ? "#FFFDE7" : "#fff", borderBottom: `1px solid ${T.borderLight}` }}>
                   {selectMode && <td style={{ padding: "7px 4px", textAlign: "center" }}><input type="checkbox" checked={checkedIds.has(r.id)} onChange={e => { const next = new Set(checkedIds); if (e.target.checked) next.add(r.id); else next.delete(r.id); setCheckedIds(next); }} style={{ width: 16, height: 16, cursor: "pointer" }} /></td>}
@@ -905,7 +912,7 @@ const DailySub = ({ employee }: { employee: any }) => {
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_out ? T.text : T.textPH }}>{fmTime(r.punch_out)}</td>
                   <td style={{ padding: "5px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, r.shift_type) || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontSize: 11, color: T.text }}>{isP && r.break_minutes_self_reported != null ? `${r.break_minutes_self_reported}分` : "—"}</td>
-                  <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: ah != null ? T.text : T.textPH }}>{ah != null ? fmDecimal(ah) : "—"}</td>
+                  <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: ah != null ? T.text : T.textPH }}>{ah != null ? fmHours(ah) : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: (r.over_under ?? 0) > 0 ? T.success : (r.over_under ?? 0) < 0 ? T.danger : T.textMuted }}>{r.over_under != null ? `${r.over_under > 0 ? "+" : ""}${fmDecimal(r.over_under)}` : "—"}</td>
                   <td style={{ padding: "7px 6px", textAlign: "center", fontSize: 11, color: T.textSec, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.employee_note || r.admin_memo || "—"}</td>
                   <td style={{ padding: "5px", textAlign: "center" }}><button onClick={() => { setEditRow(r); setEditEmpName(r.emp_name); }} style={{ padding: "5px 10px", borderRadius: 4, border: "none", backgroundColor: T.primary, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>修正</button></td>
@@ -1044,9 +1051,9 @@ const MonthlySub = ({ employee }: { employee: any }) => {
         if (r.reason?.includes("選択休（全日）")) { kibouDays++; return; }
         if (r.reason?.includes("午前選択休") || r.reason?.includes("午後選択休")) { kibouDays += 0.5; }
         if (r.reason === "欠勤") { absences++; return; }
-        const ah = isP ? calcPartHours(r.punch_in, r.punch_out, r.break_minutes_self_reported) : r.actual_hours;
+        const ah = actualMinutesForRow(r, isP);
         if (ah != null && ah > 0) workDays++;
-        if (ah != null) totalMin += hoursToMinutes(ah);
+        if (ah != null) totalMin += ah;
         if (r.overtime_hours != null) overtimeMin += hoursToMinutes(r.overtime_hours);
         if (r.late_minutes && r.late_minutes > 0) lateCount++;
         if (r.early_leave_minutes && r.early_leave_minutes > 0) earlyCount++;

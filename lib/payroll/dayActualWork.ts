@@ -51,10 +51,20 @@ function parseTime(timeStr: string): number | null {
   return parts.length < 2 ? null : parseInt(parts[0]) * 60 + parseInt(parts[1]);
 }
 
-function calcActualMinutes(pi: string, po: string, isPart: boolean, breakSelf: number | null): number {
-  const brk = isPart ? (breakSelf ?? 0) : 60;
-  const raw = calcWorkMinutes(pi, po, brk);
-  return isPart ? Math.floor(raw / 15) * 15 : raw;
+// パートの日別実働は「出勤時刻を15分切り上げ／退勤時刻を15分切り捨て、そこから休憩を引く」。
+//   実働 = FLOOR(out/15)*15 − CEIL(in/15)*15 − 休憩(自己申告、null→0)
+// 正社員は「休憩=60分固定、切り捨てなし」（従来どおり）。
+// DBトリガー calculate_attendance（3社共通）と同じ式。式を変えるときは両方そろえること。
+// 明石のパート日別実働を扱う関数は必ずこれ1つを使う（AdminTab/AttendanceTab/PayrollSub/SharoushiSub 共通）。
+export function calcActualMinutes(pi: string, po: string, isPart: boolean, breakSelf: number | null): number {
+  const inTime = parseTime(pi), outTime = parseTime(po);
+  if (inTime === null || outTime === null) return 0;
+  if (isPart) {
+    const inRounded = Math.ceil(inTime / 15) * 15;    // 出勤 15分切り上げ
+    const outRounded = Math.floor(outTime / 15) * 15; // 退勤 15分切り捨て
+    return Math.max(0, outRounded - inRounded - (breakSelf ?? 0));
+  }
+  return Math.max(0, outTime - inTime - 60);          // 正社員: 休憩60分固定・切り捨てなし
 }
 
 // 分類の優先順位は現行 calculatePayroll(正社員 L98-160) の else-if チェーンに合わせる:
