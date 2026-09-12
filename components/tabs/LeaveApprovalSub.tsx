@@ -5,8 +5,7 @@ import { T, DOW } from "@/lib/constants";
 import { ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { notifyPush } from "@/lib/notifyPush";
-
-const HONBU_CODES = ["D02", "D18", "D49", "D67"];
+import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
 
 function storeShort(name: string | null) {
   if (!name) return "—";
@@ -71,19 +70,19 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
   // 権限フィルタ:
-  //   HONBU（D02/D18/D49/D67）→ 全件
+  //   本部店舗所属（代表・専務・部長など）→ 全件
   //   DA001/DA002（店長）→ approver_id が自分のものだけ（= 自分宛に来た申請のみ）
   //   それ以外 → 空（承認権限なし）
-  // 店舗名で絞ると店長本人の申請（approver_id=D18）も同じ店舗にマッチして見えてしまい、
+  // 店舗名で絞ると店長本人の申請（approver_id=本部）も同じ店舗にマッチして見えてしまい、
   // 自己承認が可能になるため approver_id で厳密に絞る。
   const permFiltered = useMemo(() => {
     const myCode = employee?.employee_code || "";
-    if (HONBU_CODES.includes(myCode)) return requests;
+    if (isExcludedFromAkashiPayroll({ employee_code: myCode, store_id: employee?.store_id })) return requests;
     if (myCode === "DA001" || myCode === "DA002") {
       return requests.filter(r => r.approver_id === employee.id);
     }
     return [];
-  }, [requests, employee?.employee_code, employee?.id]);
+  }, [requests, employee?.employee_code, employee?.id, employee?.store_id]);
 
   const filtered = useMemo(() => {
     if (filter === "all") return permFiltered;

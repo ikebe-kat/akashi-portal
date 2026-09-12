@@ -138,10 +138,10 @@ BEGIN
           SELECT * FROM jsonb_populate_record(null::employee_payroll_config, v_new_row);
         ELSE
           -- 旧行なし（新入社員）→ 変更分だけで INSERT
+          -- shift_type は列既定値 'work' に任せる。employment_category はカラム自体を廃止するため入れない。
           v_new_row := v_config_changes || jsonb_build_object(
             'id', gen_random_uuid(),
             'employee_id', v_employee_id,
-            'employment_category', CASE WHEN v_employment_type = 'パート' THEN 'hourly' ELSE 'monthly' END,
             'effective_from', v_effective_from,
             'effective_to', null,
             'created_at', now(),

@@ -52,7 +52,7 @@ export default function HomePage() {
   const [docsBadge, setDocsBadge] = useState(0);
   const [adminBadge, setAdminBadge] = useState(0);
 
-  const EMP_COLS = "id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, holiday_calendar, holiday_pattern, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)";
+  const EMP_COLS = "id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, holiday_calendar, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)";
 
   const refreshEmployee = useCallback(async () => {
     const stored = localStorage.getItem("employee");

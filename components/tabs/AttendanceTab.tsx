@@ -1,7 +1,8 @@
 ﻿"use client";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { T, DOW, stepMonth, fmtMin, displayReason, displayChipLabel, isKoukyuShift, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
+import { T, DOW, stepMonth, fmtMin, displayReason, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
+import { fetchHolidaysForEmployee } from "@/lib/holidayFetch";
 import { ReasonBadges } from "@/components/ui";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import type { MonthlySummary } from "@/lib/types";
@@ -84,7 +85,6 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   const [rows, setRows] = useState<any[]>([]);
   const [holidays, setHolidays] = useState<string[]>([]);
   const [scheduledMin, setScheduledMin] = useState<number>(0);
-  const [kibouQuota, setKibouQuota] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
   /* レスポンシブ判定 */
@@ -151,25 +151,15 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       .eq("employee_id", employee.id).gte("attendance_date", from).lte("attendance_date", to).order("attendance_date");
     setRows(attData ?? []);
 
-    if (employee.holiday_calendar) {
-      const { data: holData } = await supabase
-        .from("holiday_calendars").select("holiday_date")
-        .eq("company_id", employee.company_id).eq("calendar_type", employee.holiday_calendar)
-        .gte("holiday_date", from).lte("holiday_date", to);
-      setHolidays((holData ?? []).map(h => h.holiday_date));
-    } else { setHolidays([]); }
+    const holSet = await fetchHolidaysForEmployee(employee.company_id, employee.holiday_calendar, from, to);
+    setHolidays(Array.from(holSet));
 
     const { data: varData } = await supabase
       .from("variable_hours").select("scheduled_hours")
       .eq("company_id", employee.company_id).eq("year_month", yearMonth).limit(1).maybeSingle();
     setScheduledMin(varData?.scheduled_hours ? Math.round(Number(varData.scheduled_hours) * 60) : 0);
 
-    if (employee.holiday_pattern) {
-      const { data: kibouData } = await supabase
-        .from("hope_holiday_quotas").select("quota")
-        .eq("pattern_name", employee.holiday_pattern).eq("month", mo).limit(1).maybeSingle();
-      setKibouQuota(kibouData?.quota ? Number(kibouData.quota) : 0);
-    } else { setKibouQuota(0); }
+    // 明石は選択休を使わないため hope_holiday_quotas は参照しない
     const { data: lrData } = await supabase
       .from("leave_requests").select("attendance_date, end_date, status, reason, reject_reason, approved_at, type")
       .eq("employee_id", employee.id).in("status", ["pending", "rejected", "approved"]);
@@ -240,15 +230,10 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       if (d.reason.includes("午前有給") || d.reason.includes("午後有給")) return s + 0.5;
       return s;
     }, 0);
-    const ku = allDays.reduce((s, d) => {
-      if (!d.reason) return s;
-      if (d.reason.includes("選択休（全日）")) return s + 1;
-      if (d.reason.includes("午前選択休") || d.reason.includes("午後選択休")) return s + 0.5;
-      return s;
-    }, 0);
     const tw = allDays.reduce((s, d) => s + d.wm, 0);
-    return { wd, hd, ab, yu, kr: isKoukyuShift(empShiftType) ? 999 : kibouQuota - ku, tw, sm: scheduledMin, df: tw - scheduledMin };
-  }, [allDays, scheduledMin, kibouQuota]);
+    // 明石は選択休を使わないため kr（選択休残）は集計しない
+    return { wd, hd, ab, yu, kr: 0, tw, sm: scheduledMin, df: tw - scheduledMin };
+  }, [allDays, scheduledMin]);
 
   /* ── モーダル開く ── */
   const openModal = (day: any) => {
@@ -364,21 +349,7 @@ export default function AttendanceTab({ employee }: { employee: any }) {
       if (totalRemaining < yukyuDays) { showAlert(`有給残が不足しています（残: ${totalRemaining}日）`); return; }
     }
 
-    /* 選択休上限チェック */
-    if (!isKoukyuShift(empShiftType)) {
-      const kibouDays = (selZenjitsu === "選択休（全日）" ? 1 : 0) + (selGozen === "午前選択休" ? 0.5 : 0) + (selGogo === "午後選択休" ? 0.5 : 0);
-      if (kibouDays > 0 && kibouQuota > 0) {
-        const usedKibou = allDays.reduce((s, d) => {
-          if (!d.reason || d.dateStr === modalDay.dateStr) return s;
-          if (d.reason.includes("選択休（全日）")) return s + 1;
-          if (d.reason.includes("午前選択休") || d.reason.includes("午後選択休")) return s + 0.5;
-          return s;
-        }, 0);
-        const remaining = kibouQuota - usedKibou;
-        if (remaining < kibouDays) { showAlert(`選択休の上限に達しています（残: ${remaining}日 / 上限: ${kibouQuota}日）`); return; }
-      }
-    }
-
+    /* 明石は選択休を使わないため上限チェックなし */
 
     /* 有給が含まれる場合 → leave_requestsにINSERT（attendance_dailyには登録しない） */
     if (yukyuDays > 0) {
@@ -551,12 +522,11 @@ export default function AttendanceTab({ employee }: { employee: any }) {
         </div>
       </div>
 
-      {/* サマリー */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6, marginBottom: 6 }}>
+      {/* サマリー（明石は選択休を使わないため 4カード） */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 6 }}>
         <SC l="出勤日数" v={sum.wd} u="日" /><SC l="休日" v={sum.hd} u="日" />
         <SC l="欠勤" v={sum.ab} u="日" c={sum.ab > 0 ? T.danger : T.text} />
         <SC l="有給取得" v={sum.yu} u="日" c={T.yukyuBlue} />
-        <SC l={isKoukyuShift(empShiftType) ? "公休残" : "選択休残"} v={isKoukyuShift(empShiftType) ? "∞" : sum.kr} u="日" c={!isKoukyuShift(empShiftType) && sum.kr <= 0 ? T.danger : T.text} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 16 }}>
         <SC l="月間総労働" v={fmtMin(sum.tw)} u="h" />
@@ -729,11 +699,8 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             </div>
 
             <Dot color={T.holidayRed} label="休暇申請" />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 }}>
               <Chip label="有給（全日）" selected={selZenjitsu === "有給（全日）"} color={T.yukyuBlue} onClick={() => toggleZenjitsu("有給（全日）")} />
-              {!(employee?.company_id === AKASHI_COMPANY_ID && (yr > 2026 || (yr === 2026 && mo >= 5))) && (
-                <Chip label={displayChipLabel("選択休（全日）", empShiftType)} selected={selZenjitsu === "選択休（全日）"} color={T.kibouYellow} onClick={() => toggleZenjitsu("選択休（全日）")} />
-              )}
             </div>
 
 

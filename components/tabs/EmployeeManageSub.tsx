@@ -6,14 +6,13 @@ import { supabase } from "@/lib/supabase";
 import NyushaSheetExport from "@/components/tabs/NyushaSheetExport";
 import { todayJST } from "@/lib/dateUtils";
 import { isValidPin } from "@/lib/pinValidation";
+import { AKASHI_HOLIDAY_CALENDARS, fetchWorkPatterns, labelOfHolidayCalendar, WorkPatternOption } from "@/lib/akashiOptions";
+import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
 
 /* ══════════════════════════════════════ */
-/* ── 選択肢定義（ハンドオフv15準拠） ── */
+/* ── 選択肢定義（DBに存在する値のみ） ── */
 /* ══════════════════════════════════════ */
 const EMPLOYMENT_TYPES = ["代表取締役", "正社員", "パート", "特定技能", "技能実習"] as const;
-const HOLIDAY_PATTERNS = ["正社員", "パート"] as const;
-const HOLIDAY_CALENDARS = ["ダイハツ明石西"] as const;
-const WORK_PATTERNS = ["09:00-18:00"] as const;
 const GENDERS = ["男性", "女性"] as const;
 const BANK_TYPES = ["普通", "当座"] as const;
 const DOC_CATEGORIES = ["履歴書", "免許証", "資格証明書", "契約書", "その他"] as const;
@@ -27,7 +26,7 @@ interface EmpRow {
   department: string | null; grade: string | null;
   weekly_work_days: number | null; weekly_work_hours: number | null;
   paid_leave_grant_date: string | null; work_pattern_code: string | null;
-  holiday_pattern: string | null; holiday_calendar: string | null;
+  holiday_calendar: string | null;
   role: string; requires_punch: boolean | null; is_active: boolean | null;
   postal_code: string | null; address: string | null;
   emergency_contact_name: string | null; emergency_contact_phone: string | null;
@@ -62,12 +61,19 @@ const Field = ({ label, children, span }: { label: string; children: React.React
 /* ── 編集モーダル（新規・編集兼用）  ── */
 /* ══════════════════════════════════════ */
 const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Partial<EmpRow> | null; stores: { id: string; name: string }[]; isNew: boolean; onClose: () => void; onSaved: (msg: string) => void; companyId: string }) => {
-  const initial: Record<string, any> = { store_id: "", employee_code: "", full_name: "", full_name_kana: "", email: "", phone: "", gender: "", birth_date: "", hire_date: todayJST(), employment_type: "正社員", position: "", department: "", grade: "", weekly_work_days: 5, weekly_work_hours: 40, paid_leave_grant_date: "", work_pattern_code: "09:30-18:00", holiday_pattern: "正社員A", holiday_calendar: "ダイハツ明石西", role: "一般", requires_punch: true, postal_code: "", address: "", emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "", bank_name: "", bank_branch: "", bank_account_type: "普通", bank_account_number: "", bank_account_holder: "", basic_pension_number: "", employment_insurance_number: "", pin: "", skills: "", my_number: "", insurance_card_requested: false };
+  // 新規初期値は、休日カレンダー・勤務パターン等の会社依存項目は未設定で始める。既存編集時のみ現行値を引き継ぐ。
+  const initial: Record<string, any> = { store_id: "", employee_code: "", full_name: "", full_name_kana: "", email: "", phone: "", gender: "", birth_date: "", hire_date: todayJST(), employment_type: "正社員", position: "", department: "", grade: "", weekly_work_days: 5, weekly_work_hours: 40, paid_leave_grant_date: "", work_pattern_code: "", holiday_calendar: "", role: "一般", requires_punch: true, postal_code: "", address: "", emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: "", bank_name: "", bank_branch: "", bank_account_type: "普通", bank_account_number: "", bank_account_holder: "", basic_pension_number: "", employment_insurance_number: "", pin: "", skills: "", my_number: "", insurance_card_requested: false };
   if (!isNew && emp) { Object.keys(initial).forEach(k => { if (k === "pin") return; const v = (emp as any)[k]; if (v != null) initial[k] = v; }); }
   const [form, setForm] = useState<Record<string, any>>(initial);
   const [saving, setSaving] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(emp?.photo_url || null);
+  // 勤務パターンは work_patterns（会社ID一致）から動的取得
+  const [workPatterns, setWorkPatterns] = useState<WorkPatternOption[]>([]);
+  useEffect(() => {
+    if (!companyId) return;
+    fetchWorkPatterns(companyId).then(setWorkPatterns).catch(() => setWorkPatterns([]));
+  }, [companyId]);
   const set = (key: string, val: any) => setForm(prev => ({ ...prev, [key]: val }));
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (!f) return; setPhotoFile(f); const reader = new FileReader(); reader.onload = () => setPhotoPreview(reader.result as string); reader.readAsDataURL(f); };
 
@@ -94,7 +100,8 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
       position: form.position?.trim() || null, department: form.department?.trim() || null, grade: form.grade?.trim() || null,
       weekly_work_days: form.weekly_work_days ? Number(form.weekly_work_days) : null, weekly_work_hours: form.weekly_work_hours ? Number(form.weekly_work_hours) : null,
       paid_leave_grant_date: form.paid_leave_grant_date || null, work_pattern_code: form.work_pattern_code || null,
-      holiday_pattern: form.holiday_pattern || null, holiday_calendar: form.holiday_calendar || null, role: form.role, requires_punch: form.requires_punch,
+      // holiday_pattern（選択休パターン）は明石では使わないため送らない。カラム自体は3社共通で KAT の選択休が使うため残す。
+      holiday_calendar: form.holiday_calendar || null, role: form.role, requires_punch: form.requires_punch,
       postal_code: form.postal_code?.trim() || null, address: form.address?.trim() || null,
       emergency_contact_name: form.emergency_contact_name?.trim() || null, emergency_contact_phone: form.emergency_contact_phone?.trim() || null, emergency_contact_relation: form.emergency_contact_relation?.trim() || null,
       bank_name: form.bank_name?.trim() || null, bank_branch: form.bank_branch?.trim() || null, bank_account_type: form.bank_account_type || null,
@@ -148,8 +155,8 @@ const EditForm = ({ emp, stores, isNew, onClose, onSaved, companyId }: { emp: Pa
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="雇用区分 *"><select value={form.employment_type} onChange={e => set("employment_type", e.target.value)} style={selectStyle}>{EMPLOYMENT_TYPES.map(v => <option key={v} value={v}>{v}</option>)}</select></Field><Field label="管理者権限"><select value={form.role} onChange={e => set("role", e.target.value)} style={selectStyle}>{ROLES.map(v => <option key={v} value={v}>{v}</option>)}</select></Field></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="部署"><input type="text" value={form.department} onChange={e => set("department", e.target.value)} placeholder="営業部" style={inputStyle} /></Field><Field label="役職"><input type="text" value={form.position} onChange={e => set("position", e.target.value)} placeholder="店長" style={inputStyle} /></Field></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="等級"><input type="text" value={form.grade} onChange={e => set("grade", e.target.value)} style={inputStyle} /></Field><Field label="入社日 *"><input type="date" value={form.hire_date} onChange={e => set("hire_date", e.target.value)} style={inputStyle} /></Field></div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="勤務パターン"><select value={form.work_pattern_code} onChange={e => set("work_pattern_code", e.target.value)} style={selectStyle}><option value="">未設定</option>{WORK_PATTERNS.map(v => <option key={v} value={v}>{v}</option>)}</select></Field><Field label="休日カレンダー"><select value={form.holiday_calendar} onChange={e => set("holiday_calendar", e.target.value)} style={selectStyle}><option value="">未設定</option>{HOLIDAY_CALENDARS.map(v => <option key={v} value={v}>{v}</option>)}</select></Field></div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="選択休パターン"><select value={form.holiday_pattern} onChange={e => set("holiday_pattern", e.target.value)} style={selectStyle}><option value="">未設定</option>{HOLIDAY_PATTERNS.map(v => <option key={v} value={v}>{v}</option>)}</select></Field><Field label="有給発生日"><input type="date" value={form.paid_leave_grant_date} onChange={e => set("paid_leave_grant_date", e.target.value)} style={inputStyle} /></Field></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="勤務パターン"><select value={form.work_pattern_code || ""} onChange={e => set("work_pattern_code", e.target.value)} style={selectStyle}><option value="">未設定</option>{workPatterns.map(p => <option key={p.code} value={p.code}>{p.code}</option>)}</select></Field><Field label="休日カレンダー"><select value={form.holiday_calendar || ""} onChange={e => set("holiday_calendar", e.target.value)} style={selectStyle}><option value="">未設定</option>{AKASHI_HOLIDAY_CALENDARS.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}</select></Field></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, marginBottom: 8 }}><Field label="有給発生日"><input type="date" value={form.paid_leave_grant_date} onChange={e => set("paid_leave_grant_date", e.target.value)} style={inputStyle} /></Field></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 8 }}><Field label="週勤務日数"><input type="number" value={form.weekly_work_days} onChange={e => set("weekly_work_days", e.target.value)} min={1} max={7} style={inputStyle} /></Field><Field label="週勤務時間"><input type="number" value={form.weekly_work_hours} onChange={e => set("weekly_work_hours", e.target.value)} step={0.5} style={inputStyle} /></Field><Field label="打刻要否"><select value={form.requires_punch ? "true" : "false"} onChange={e => set("requires_punch", e.target.value === "true")} style={selectStyle}><option value="true">必要</option><option value="false">不要</option></select></Field></div>
         <div style={sectionTitleStyle}>保有資格</div>
         <Field label="保有資格（自由記入）"><textarea value={form.skills} onChange={e => set("skills", e.target.value)} placeholder="自動車整備士2級、損保募集人資格 など" rows={2} style={{ ...inputStyle, resize: "vertical" }} /></Field>
@@ -400,6 +407,23 @@ const LeavePanel = ({ empId, onMsg }: { empId: string; onMsg: (m: string) => voi
 
   const handleSave = async () => {
     if (!form.leave_start_date) { onMsg("休職開始日を入力してください"); return; }
+    // 復帰日は「休職最終日の翌日」（当日は休職に含めない・3社共通のDB関数と同じ挙動）。
+    // よって「復帰日 ≤ 開始日」は拒否（同日は0日の休職になり無意味）。
+    if (form.leave_end_date && form.leave_end_date <= form.leave_start_date) {
+      onMsg("復帰日は休職開始日より後の日付にしてください"); return;
+    }
+    // 期間重複チェック：休職期間は半開区間 [開始日, 復帰日)。
+    // 「次の開始日 < 前の復帰日」なら重複として拒否、
+    // 「次の開始日 = 前の復帰日」は連続休職として許可する。
+    const overlap = leaves.some((lv) => {
+      if (editLeave && lv.id === editLeave.id) return false;
+      const aStart = form.leave_start_date as string;
+      const aEnd   = (form.leave_end_date as string) || "9999-12-31";
+      const bStart = lv.leave_start_date;
+      const bEnd   = lv.leave_end_date || "9999-12-31";
+      return aStart < bEnd && bStart < aEnd;
+    });
+    if (overlap) { onMsg("同じ社員の他の休職期間と日付が重なっています。連続する休職は1件にまとめてください"); return; }
     setSaving(true);
     const leavePayload = { employee_id: empId, leave_start_date: form.leave_start_date, leave_end_date: form.leave_end_date || null, leave_type: form.leave_type, updated_at: new Date().toISOString() };
     let leaveId: string | null = editLeave?.id || null;
@@ -445,7 +469,7 @@ const LeavePanel = ({ empId, onMsg }: { empId: string; onMsg: (m: string) => voi
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div>
               <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{fmtDate(lv.leave_start_date)}</span>
-              <span style={{ fontSize: 13, color: T.textSec }}> 〜 {lv.leave_end_date ? fmtDate(lv.leave_end_date) : "復帰未定"}</span>
+              <span style={{ fontSize: 13, color: T.textSec }}> 〜 {lv.leave_end_date ? `${fmtDate(lv.leave_end_date)}（復帰日）` : "復帰未定"}</span>
             </div>
             <div style={{ display: "flex", gap: 4 }}>
               <button onClick={() => openEdit(lv)} style={{ padding: "4px 10px", borderRadius: 3, border: "none", backgroundColor: T.primary, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>編集</button>
@@ -463,7 +487,7 @@ const LeavePanel = ({ empId, onMsg }: { empId: string; onMsg: (m: string) => voi
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>{editLeave ? "休職を編集" : "休職を追加"}</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
             <Field label="休職開始日 *"><input type="date" value={form.leave_start_date} onChange={e => set("leave_start_date", e.target.value)} style={inputStyle} /></Field>
-            <Field label="復帰日（空欄=復帰未定）"><input type="date" value={form.leave_end_date} onChange={e => set("leave_end_date", e.target.value)} style={inputStyle} /></Field>
+            <Field label="復帰日（空欄＝復帰未定）"><input type="date" value={form.leave_end_date} onChange={e => set("leave_end_date", e.target.value)} style={inputStyle} /></Field>
           </div>
           <div style={{ marginBottom: 10 }}>
             <Field label="種別"><select value={form.leave_type} onChange={e => set("leave_type", e.target.value)} style={selectStyle}>{LEAVE_TYPES.map(v => <option key={v} value={v}>{v}</option>)}</select></Field>
@@ -540,7 +564,7 @@ export default function EmployeeManageSub({ employee }: { employee: any }) {
     storeList.forEach((s: { id: string; name: string }) => { storeMap[s.id] = s.name; });
     // pin は employees から削除されたため SELECT 句に含めない（含めるとクエリ失敗で0件になる）
     const { data: ed, error: edErr } = await supabase.from("employees")
-      .select("id, company_id, store_id, employee_code, full_name, full_name_kana, email, phone, gender, birth_date, hire_date, employment_type, position, department, grade, weekly_work_days, weekly_work_hours, paid_leave_grant_date, work_pattern_code, holiday_pattern, holiday_calendar, role, requires_punch, is_active, postal_code, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, bank_name, bank_branch, bank_account_type, bank_account_number, bank_account_holder, basic_pension_number, employment_insurance_number, photo_url, resigned_at, skills, my_number, insurance_card_requested")
+      .select("id, company_id, store_id, employee_code, full_name, full_name_kana, email, phone, gender, birth_date, hire_date, employment_type, position, department, grade, weekly_work_days, weekly_work_hours, paid_leave_grant_date, work_pattern_code, holiday_calendar, role, requires_punch, is_active, postal_code, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, bank_name, bank_branch, bank_account_type, bank_account_number, bank_account_holder, basic_pension_number, employment_insurance_number, photo_url, resigned_at, skills, my_number, insurance_card_requested")
       .eq("company_id", employee.company_id).order("employee_code");
     if (edErr) {
       console.error("employees select error:", edErr);
@@ -553,8 +577,7 @@ export default function EmployeeManageSub({ employee }: { employee: any }) {
       const { data: pinRows } = await supabase.from("employee_pins").select("employee_id, pin").in("employee_id", empIds);
       (pinRows || []).forEach((p: any) => { pinMap[p.employee_id] = p.pin; });
     }
-    const HONBU_CODES = ["D02", "D18", "D49", "D67"];
-    setEmps((ed || []).filter((e: any) => !HONBU_CODES.includes(e.employee_code)).map((e: any) => ({ ...e, store_name: storeMap[e.store_id] || "", pin: pinMap[e.id] ?? null })));
+    setEmps((ed || []).filter((e: any) => !isExcludedFromAkashiPayroll(e)).map((e: any) => ({ ...e, store_name: storeMap[e.store_id] || "", pin: pinMap[e.id] ?? null })));
     setLoading(false);
   }, [employee?.company_id]);
 
@@ -588,7 +611,7 @@ export default function EmployeeManageSub({ employee }: { employee: any }) {
       : (
         <div style={{ borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}><div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 860 }}>
-            <thead><tr style={{ backgroundColor: T.primary }}>{["CD","氏名","店舗","雇用区分","部署","権限","勤務","カレンダー","選択休","入社日","",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ backgroundColor: T.primary }}>{["CD","氏名","店舗","雇用区分","部署","権限","勤務","カレンダー","入社日","",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>{filtered.map(emp => (
               <tr key={emp.id} style={{ borderBottom: `1px solid ${T.borderLight}`, backgroundColor: emp.is_active === false ? "#FFF5F5" : "#fff" }}>
                 <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.textMuted, fontVariantNumeric: "tabular-nums" }}>{emp.employee_code}</td>
@@ -598,8 +621,7 @@ export default function EmployeeManageSub({ employee }: { employee: any }) {
                 <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.textSec }}>{emp.department || "—"}</td>
                 <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: emp.role !== "一般" ? T.primary : T.textMuted }}>{emp.role === "一般" ? "—" : emp.role}</td>
                 <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.textSec, fontVariantNumeric: "tabular-nums" }}>{emp.work_pattern_code || "—"}</td>
-                <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.textSec }}>{emp.holiday_calendar || "—"}</td>
-                <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.textSec }}>{emp.holiday_pattern || "—"}</td>
+                <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.textSec }}>{labelOfHolidayCalendar(emp.holiday_calendar)}</td>
                 <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11, color: T.textMuted }}>{emp.hire_date}</td>
                 <td style={{ padding: "6px", textAlign: "center" }}><button onClick={() => setDetailEmp(emp)} style={{ padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.gold}`, backgroundColor: T.goldLight, color: "#78350F", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>詳細</button></td>
                 <td style={{ padding: "6px", textAlign: "center", whiteSpace: "nowrap" }}>
