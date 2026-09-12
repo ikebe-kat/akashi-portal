@@ -1,14 +1,12 @@
 "use client";
 import { useState, useCallback } from "react";
-import { T, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
+import { T, AKASHI_COMPANY_ID, HONBU_EMPLOYEE_CODES, getDateRange } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
 import { fetchEmploymentStatus, fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
 import { fetchHolidaysByCalendarType } from "@/lib/holidayFetch";
 import { classifyDayWork } from "@/lib/payroll/dayActualWork";
 import { hoursToMinutes } from "@/lib/payroll/timeUnits";
-
-const HONBU_CODES = ["D02", "D18", "D49", "D67"];
 
 const REASON_MAP: Record<string, string> = {
   "選択休（全日）": "公休", "午前選択休": "公前", "午後選択休": "公後",
@@ -88,7 +86,7 @@ export default function SharoushiSub({ employee }: { employee: any }) {
       const statusFullMap = await fetchEmploymentStatus(employee.company_id, regRange0.from, regRange0.to, "insurance");
       const statusPartMap = await fetchEmploymentStatus(employee.company_id, partRange0.from, partRange0.to, "insurance");
       const empFiltered = empRaw.filter((e: any) => {
-        if (HONBU_CODES.includes(e.employee_code)) return false;
+        if (HONBU_EMPLOYEE_CODES.includes(e.employee_code)) return false;
         const isParttime = e.employment_type === "パート";
         const st = (isParttime ? statusPartMap : statusFullMap).get(e.id) ?? "active";
         return st !== "not_employed";

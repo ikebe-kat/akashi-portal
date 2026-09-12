@@ -2,7 +2,7 @@
 // akashi-portal 給与計算ロジック
 
 import { supabase } from '@/lib/supabase';
-import { AKASHI_COMPANY_ID } from '@/lib/constants';
+import { AKASHI_COMPANY_ID, HONBU_EMPLOYEE_CODES } from '@/lib/constants';
 import { fetchLeaveDays, leaveKey } from '@/lib/employmentRpc';
 import { fetchHolidaysByCalendarType } from '@/lib/holidayFetch';
 import { FT_CONFIG_FIELDS, PT_CONFIG_FIELDS } from './configFields';
@@ -36,8 +36,12 @@ const DEDUCTION_UNIT_HOURS = AVERAGE_WORK_DAYS * 8;
 const SHUKIN_KISOKU_REVISION_DATE = '2026-09-01';
 const PART_COMMUTE_DIVISOR = 21;         // パート通勤手当の除数
 const DEPENDENT_ALLOWANCE_PER_PERSON = 5000; // 扶養手当（1人あたり/月）
-// 給与計算の対象外（役員 = requires_punch=false）は employees.requires_punch で判定する。
-// 社員コードの直書き（EXCLUDE_CODES）は廃止した。requires_punch=false の人は 0 円計算になる。
+// KAT本部の役員4名（D02/D18/D49/D67）は明石の給与計算・画面・社労士出力から除外する。
+// 産休中の DA037 など requires_punch=false の人は 0 円行として出す（給与画面に載る）。
+// この2つを employees の1つのフラグで区別する方法が未確定のため、区別する項目が決まる
+// までは HONBU_EMPLOYEE_CODES による社員コード直書きの暫定運用にする。
+// （SharoushiSub / AdminTab など他画面と定義を共有するため lib/constants.ts に集約。）
+const EXCLUDE_EMPLOYEE_CODES: readonly string[] = HONBU_EMPLOYEE_CODES;
 // 正社員の固定支給項目（payroll_monthly上の列名）。config が唯一の正であり preserve 対象外
 const FULLTIME_CONFIG_FIELDS = new Set([
   'base_salary', 'position_allowance', 'qualification_allowance',
@@ -68,6 +72,8 @@ export async function calculateAll(params: PayrollCalcParams & { mode?: 'preserv
   const preflightErrors: string[] = [];
   const targetEmployees: typeof employees = [];
   for (const emp of employees) {
+    // KAT本部4名は明石の給与計算・画面から完全に除外する（0 円行も作らない）。
+    if (EXCLUDE_EMPLOYEE_CODES.includes(emp.employee_code)) continue;
     const isParttime = emp.employment_type === 'パート';
     const periodEnd = isParttime ? parttimePeriod.end : fulltimePeriod.end;
     // E: 入社日 > 期間末日 → 対象外（退職済み扱いと1箇所にまとめる）
