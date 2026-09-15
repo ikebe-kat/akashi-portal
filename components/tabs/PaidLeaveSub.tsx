@@ -1,7 +1,8 @@
 ﻿"use client";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { T, GRANT_MONTHS, DAYS_FULL, DAYS_PART, AKASHI_COMPANY_ID } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
+import { useLiveList } from "@/lib/useLiveList";
 import { fetchEmploymentStatus } from "@/lib/employmentRpc";
 import { toDateStr } from "@/lib/dateUtils";
 import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
@@ -325,19 +326,17 @@ export default function PaidLeaveSub({ employee }: { employee: any }) {
     setLoading(false);
   }, [employee?.company_id]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  /* Realtime: paid_leave_grantsが変わったら再取得 */
-  useEffect(() => {
-    if (!employee?.company_id) return;
-    const ch = supabase
-      .channel("plg-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "paid_leave_grants" }, () => {
-        fetchData();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [employee?.company_id, fetchData]);
+  /* Realtime 購読と fetch を useLiveList に集約。
+     マウント時 / バックグラウンド復帰 / Realtime 再接続 / paid_leave_grants の変更で fetchData を呼び直す。 */
+  useLiveList({
+    channel: `plg-changes-${employee?.company_id ?? "none"}`,
+    subscriptions: employee?.company_id
+      ? [{ table: "paid_leave_grants", event: "*" }]
+      : [],
+    fetch: () => fetchData(),
+    deps: [employee?.company_id],
+    enabled: !!employee?.company_id,
+  });
 
   const filtered = useMemo(() => {
     if (storeFilter === "all") return rows;

@@ -46,8 +46,8 @@ export async function registerAndSubscribe(employeeId: string): Promise<boolean>
       return false;
     }
 
-    const reg = await navigator.serviceWorker.register("/sw.js");
-    await navigator.serviceWorker.ready;
+    // SW 登録は useServiceWorkerUpdate が担当。ここは登録完了を待つだけ。
+    const reg = await navigator.serviceWorker.ready;
 
     let subscription = await reg.pushManager.getSubscription();
     if (!subscription) {

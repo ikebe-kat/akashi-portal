@@ -5,6 +5,8 @@ import { T } from "@/lib/constants";
 import { GeoBackground } from "@/components/ui";
 import { getPermLevel, canEditPunch } from "@/lib/permissions";
 import { supabase } from "@/lib/supabase";
+import { useLiveList } from "@/lib/useLiveList";
+import { useServiceWorkerUpdate } from "@/hooks/useServiceWorkerUpdate";
 import PunchTab      from "@/components/tabs/PunchTab";
 import AttendanceTab from "@/components/tabs/AttendanceTab";
 import CalendarTab   from "@/components/tabs/CalendarTab";
@@ -54,27 +56,8 @@ export default function HomePage() {
 
   const EMP_COLS = "id, employee_code, full_name, full_name_kana, department, position, store_id, company_id, holiday_calendar, work_pattern_code, requires_punch, role, employment_type, portal_group_id, stores(store_name)";
 
-  const refreshEmployee = useCallback(async () => {
-    const stored = localStorage.getItem("employee");
-    if (!stored) return;
-    let cached: any;
-    try { cached = JSON.parse(stored); } catch { return; }
-    if (!cached?.id) return;
-    try {
-      const { data } = await supabase.from("employees").select(EMP_COLS)
-        .eq("id", cached.id).maybeSingle();
-      if (data) {
-        const storeName = (data as any).stores?.store_name || cached.store_name || "";
-        const merged = { ...cached, ...data, store_name: storeName };
-        delete (merged as any).stores;
-        setEmployee(merged);
-        localStorage.setItem("employee", JSON.stringify(merged));
-      }
-    } catch (e) {
-      console.error("[home] refreshEmployee threw:", e);
-    }
-  }, []);
-
+  // localStorage の値は「初期表示だけ」に使う。DB からの再取得は useLiveList が担当し、
+  // 取得結果で employee state を丸ごと置換する（キャッシュとの部分マージはしない）。
   useEffect(() => {
     const stored = localStorage.getItem("employee");
     if (!stored) {
@@ -84,14 +67,31 @@ export default function HomePage() {
     const emp = JSON.parse(stored);
     if (emp.role === "super" && emp.employee_code !== "D67") setTab("calendar");
     setEmployee(emp);
-    refreshEmployee();
-  }, [refreshEmployee]);
+  }, [router]);
 
-  useEffect(() => {
-    const onFocus = () => refreshEmployee();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [refreshEmployee]);
+  // employees テーブルから自分の行を購読し、マウント時 / バックグラウンド復帰 /
+  // Realtime 再接続 / 行の UPDATE のたびに DB から取り直す。取得失敗時は
+  // useLiveList が 1 回だけ再試行し、それでも失敗したら state はそのままで
+  // 次の visible / SUBSCRIBED を待つ。
+  useLiveList({
+    channel: `home-employee-${employee?.id ?? "none"}`,
+    subscriptions: employee?.id
+      ? [{ table: "employees", filter: `id=eq.${employee.id}`, event: "UPDATE" }]
+      : [],
+    fetch: async () => {
+      const empId = employee?.id;
+      if (!empId) return;
+      const { data } = await supabase.from("employees").select(EMP_COLS)
+        .eq("id", empId).maybeSingle();
+      if (!data) return;
+      const { stores, ...rest } = data as any;
+      const next = { ...rest, store_name: (stores as any)?.store_name || "" };
+      setEmployee(next);
+      localStorage.setItem("employee", JSON.stringify(next));
+    },
+    deps: [employee?.id],
+    enabled: !!employee?.id,
+  });
 
   /* ── バッジ件数取得 ── */
   const fetchBadges = useCallback(async () => {
@@ -166,42 +166,25 @@ export default function HomePage() {
     }
   }, [employee]);
 
-  useEffect(() => { if (employee) fetchBadges(); }, [employee, fetchBadges]);
+  /* バッジ再取得と Realtime 購読は useLiveList に集約。
+     マウント時 / employee 変更時 / バックグラウンド復帰 / Realtime 再接続 /
+     attendance_daily / change_requests / documents の変更で fetchBadges を走らせる。 */
+  useLiveList({
+    channel: `badge-updates-${employee?.id ?? "none"}`,
+    subscriptions: employee?.id
+      ? [
+          { table: "attendance_daily", event: "*" },
+          { table: "change_requests", event: "*" },
+          { table: "documents", event: "*" },
+        ]
+      : [],
+    fetch: () => fetchBadges(),
+    deps: [employee, fetchBadges],
+    enabled: !!employee?.id,
+  });
 
-  useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
-    const checkUpdate = () => {
-      navigator.serviceWorker.getRegistration().then((reg) => {
-        if (reg) reg.update().catch(() => {});
-      });
-    };
-    const onFocus = () => checkUpdate();
-    window.addEventListener("focus", onFocus);
-    const interval = setInterval(checkUpdate, 3 * 60 * 1000);
-    let refreshing = false;
-    const onControllerChange = () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
-    };
-    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      clearInterval(interval);
-      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
-    };
-  }, []);
-
-  /* Supabase Realtime: DB変更を即座に検知してバッジ更新 */
-  useEffect(() => {
-    if (!employee?.id) return;
-    const channel = supabase.channel("badge-updates")
-      .on("postgres_changes", { event: "*", schema: "public", table: "attendance_daily" }, () => fetchBadges())
-      .on("postgres_changes", { event: "*", schema: "public", table: "change_requests" }, () => fetchBadges())
-      .on("postgres_changes", { event: "*", schema: "public", table: "documents" }, () => fetchBadges())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [employee, fetchBadges]);
+  /* SW自動更新: 共通フック使用（登録＋update／controllerchange／入力中フォーム保護つき） */
+  useServiceWorkerUpdate();
 
   const handleLogout = () => {
     const emp = JSON.parse(localStorage.getItem("employee") || "{}");

@@ -1,11 +1,12 @@
 ﻿"use client";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { T, DOW } from "@/lib/constants";
 import { ReasonBadges } from "@/components/ui";
 import Dialog from "@/components/ui/Dialog";
 import { notifyPush } from "@/lib/notifyPush";
 import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
+import { useLiveList } from "@/lib/useLiveList";
 
 function storeShort(name: string | null) {
   if (!name) return "—";
@@ -67,7 +68,17 @@ export default function LeaveApprovalSub({ employee }: { employee: any }) {
     setLoading(false);
   }, [employee?.company_id]);
 
-  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  // Realtime 購読と fetch を useLiveList に集約。
+  // マウント時 / バックグラウンド復帰 / Realtime 再接続 / leave_requests の変更で fetchRequests を呼び直す。
+  useLiveList({
+    channel: `leave-approval-${employee?.company_id ?? "none"}`,
+    subscriptions: employee?.company_id
+      ? [{ table: "leave_requests", filter: `company_id=eq.${employee.company_id}`, event: "*" }]
+      : [],
+    fetch: () => fetchRequests(),
+    deps: [employee?.company_id],
+    enabled: !!employee?.company_id,
+  });
 
   // 権限フィルタ:
   //   本部店舗所属（代表・専務・部長など）→ 全件

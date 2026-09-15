@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { T, displayReason, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import { fetchHolidaysForEmployee, fetchHolidayCalendarTypesOnDate, fetchHolidaysByCalendarType } from "@/lib/holidayFetch";
+import { getHolidaysForMonth, getHolidays, dayColorKind } from "@/lib/jpHolidays";
+import { useLiveList } from "@/lib/useLiveList";
 import { hoursToMinutes } from "@/lib/payroll/timeUnits";
 import { isExcludedFromAkashiPayroll } from "@/lib/payroll/akashiEmployeeFilter";
 import { Badge, ReasonBadges } from "@/components/ui";
@@ -500,6 +502,10 @@ const IndividualSub = ({ employee }: { employee: any }) => {
   };
 
   const isSelPartAkashi = selectedEmp?.employment_type === "パート" && employee?.company_id === AKASHI_COMPANY_ID;
+
+  /* 日本の祝日 (色・祝日名表示にのみ使う。件数・集計・申請ロジックには影響させない)。 */
+  const jpHolidayMap = useMemo(() => getHolidaysForMonth(yr, mo), [yr, mo]);
+
   const summary = useMemo(() => {
     let workDays = 0, holidays = 0, yukyuDays = 0, absentDays = 0, totalMinutes = 0, scheduledMinutes = 0, lateCount = 0, earlyCount = 0;
     rows.forEach(r => {
@@ -546,9 +552,9 @@ const IndividualSub = ({ employee }: { employee: any }) => {
           <div style={{ borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}><div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 640 }}>
               <thead><tr style={{ backgroundColor: T.primary }}>{["日付","出勤","退勤","事由",...(isSelPartAkashi ? ["休憩"] : []),"実労働","所定外","備考",""].map(h => <th key={h} style={{ padding: "8px 6px", color: "#fff", fontWeight: 600, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
-              <tbody>{rows.map(r => { const d = new Date(r.attendance_date); const dow = d.getDay(); const isOff = r.is_holiday || r.reason === "公休"; const hasReason = r.reason && r.reason !== "公休"; const ah = actualMinutesForRow(r); return (
+              <tbody>{rows.map(r => { const d = new Date(r.attendance_date); const dow = d.getDay(); const isOff = r.is_holiday || r.reason === "公休"; const hasReason = r.reason && r.reason !== "公休"; const ah = actualMinutesForRow(r); const jpHolName = jpHolidayMap[r.attendance_date] || ""; const kind = dayColorKind(dow, !!jpHolName); const dateColor = kind === "sun_or_holiday" ? T.holidayRed : kind === "sat" ? T.yukyuBlue : T.text; return (
                 <tr key={r.id} style={{ backgroundColor: isOff ? "#FFF5F5" : hasReason ? "#FFFDE7" : "#fff", borderBottom: `1px solid ${T.borderLight}` }}>
-                  <td style={{ padding: "8px 6px", fontWeight: 600, color: dow === 0 ? T.holidayRed : dow === 6 ? T.yukyuBlue : T.text, textAlign: "center", whiteSpace: "nowrap" }}>{isSelPartAkashi ? `${d.getMonth()+1}/${d.getDate()}` : d.getDate()}<span style={{ fontSize: 10, marginLeft: 1, fontWeight: 400 }}>({DOW[dow]})</span></td>
+                  <td style={{ padding: "8px 6px", fontWeight: 600, color: dateColor, textAlign: "center", whiteSpace: "nowrap" }} title={jpHolName || undefined}>{isSelPartAkashi ? `${d.getMonth()+1}/${d.getDate()}` : d.getDate()}<span style={{ fontSize: 10, marginLeft: 1, fontWeight: 400 }}>({DOW[dow]})</span>{jpHolName && <div style={{ fontSize: 9, color: T.holidayRed, fontWeight: 500, lineHeight: "10px", marginTop: 1, whiteSpace: "nowrap" }}>{jpHolName}</div>}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_in ? T.text : T.textPH }}>{fmTime(r.punch_in)}</td>
                   <td style={{ padding: "8px 6px", textAlign: "center", fontVariantNumeric: "tabular-nums", color: r.punch_out ? T.text : T.textPH }}>{fmTime(r.punch_out)}</td>
                   <td style={{ padding: "6px", textAlign: "center" }}>{r.reason ? <ReasonBadges reason={displayReason(r.reason, selectedEmp?.shift_type) || r.reason} /> : r.is_holiday ? <ReasonBadges reason="休日" /> : "—"}</td>
@@ -807,6 +813,10 @@ const DailySub = ({ employee }: { employee: any }) => {
   const selDate = new Date(selectedDate);
   const selDow = selDate.getDay();
   const dateDisplay = `${selDate.getFullYear()}年${selDate.getMonth()+1}月${selDate.getDate()}日（${DOW[selDow]}）`;
+  /* 日本の祝日 (色・祝日名表示にのみ使う。件数・集計・申請ロジックには影響させない)。 */
+  const selJpHolName = useMemo(() => getHolidays(selDate.getFullYear()).get(selectedDate) || "", [selectedDate, selDate]);
+  const selDateKind = dayColorKind(selDow, !!selJpHolName);
+  const selDateColor = selDateKind === "sun_or_holiday" ? T.holidayRed : selDateKind === "sat" ? T.yukyuBlue : T.text;
 
   const summary = useMemo(() => {
     let total = rows.length, punched = 0, noPunch = 0, onLeave = 0, absent = 0;
@@ -879,7 +889,7 @@ const DailySub = ({ employee }: { employee: any }) => {
           {checkedIds.size > 0 && <button onClick={() => setShowBulkModal(true)} style={{ padding: "8px 16px", borderRadius: 6, border: "none", backgroundColor: T.primary, color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>一斉編集</button>}
         </div>
       )}
-      <div style={{ fontSize: 15, fontWeight: 700, color: selDow === 0 ? T.holidayRed : selDow === 6 ? T.yukyuBlue : T.text, marginBottom: 12 }}>{dateDisplay}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: selDateColor, marginBottom: 12 }}>{dateDisplay}{selJpHolName && <span style={{ fontSize: 12, color: T.holidayRed, fontWeight: 500, marginLeft: 6 }}>{selJpHolName}</span>}</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 16 }}>
         <SC2 l="対象" v={summary.total} c={T.primary} />
         <SC2 l="出勤済" v={summary.punched} c={T.success} />
@@ -1169,7 +1179,17 @@ const RequestsSub = ({ employee }: { employee: any }) => {
     setLoading(false);
   }, [employee?.company_id]);
 
-  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  // Realtime 購読と fetch を useLiveList に集約。
+  // マウント時 / バックグラウンド復帰 / Realtime 再接続 / change_requests の変更で fetchRequests を呼び直す。
+  useLiveList({
+    channel: `admin-change-req-${employee?.company_id ?? "none"}`,
+    subscriptions: employee?.company_id
+      ? [{ table: "change_requests", filter: `company_id=eq.${employee.company_id}`, event: "*" }]
+      : [],
+    fetch: () => fetchRequests(),
+    deps: [employee?.company_id],
+    enabled: !!employee?.company_id,
+  });
 
   const filtered = useMemo(() => {
     if (filter === "全件") return requests;
@@ -1302,7 +1322,17 @@ const DocumentsSub = ({ employee }: { employee: any }) => {
     setLoading(false);
   }, [employee?.company_id]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // Realtime 購読と fetch を useLiveList に集約。
+  // マウント時 / バックグラウンド復帰 / Realtime 再接続 / documents の変更で fetchData を呼び直す。
+  useLiveList({
+    channel: `admin-docs-${employee?.company_id ?? "none"}`,
+    subscriptions: employee?.company_id
+      ? [{ table: "documents", filter: `company_id=eq.${employee.company_id}`, event: "*" }]
+      : [],
+    fetch: () => fetchData(),
+    deps: [employee?.company_id],
+    enabled: !!employee?.company_id,
+  });
 
   const handleUpload = async () => {
     if (!docName.trim()) { setDialogMsg("書類名を入力してください"); return; }

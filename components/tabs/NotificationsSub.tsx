@@ -1,7 +1,8 @@
 "use client";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { T } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
+import { useLiveList } from "@/lib/useLiveList";
 
 interface Notification {
   id: string;
@@ -47,19 +48,17 @@ export default function NotificationsSub({ employee }: { employee: any }) {
     setLoading(false);
   }, [employee?.company_id]);
 
-  useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
-
-  /* Realtime購読 */
-  useEffect(() => {
-    if (!employee?.company_id) return;
-    const ch = supabase
-      .channel("admin-notif")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "admin_notifications" }, () => {
-        fetchNotifications();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [employee?.company_id, fetchNotifications]);
+  // Realtime 購読と fetch を useLiveList に集約。
+  // マウント時 / バックグラウンド復帰 / Realtime 再接続 / admin_notifications INSERT で fetchNotifications を呼び直す。
+  useLiveList({
+    channel: `admin-notif-${employee?.company_id ?? "none"}`,
+    subscriptions: employee?.company_id
+      ? [{ table: "admin_notifications", event: "INSERT" }]
+      : [],
+    fetch: () => fetchNotifications(),
+    deps: [employee?.company_id],
+    enabled: !!employee?.company_id,
+  });
 
   const filtered = useMemo(() => {
     if (filter === "all") return items;

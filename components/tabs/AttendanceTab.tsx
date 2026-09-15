@@ -3,6 +3,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { T, DOW, stepMonth, fmtMin, displayReason, AKASHI_COMPANY_ID, getDateRange } from "@/lib/constants";
 import { fetchHolidaysForEmployee } from "@/lib/holidayFetch";
+import { getHolidaysForMonth, dayColorKind } from "@/lib/jpHolidays";
 import { ReasonBadges } from "@/components/ui";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
 import type { MonthlySummary } from "@/lib/types";
@@ -185,6 +186,9 @@ export default function AttendanceTab({ employee }: { employee: any }) {
   }, [employee, yr, mo]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  /* 日本の祝日 (色・祝日名表示にのみ使う。件数・集計・申請ロジックには影響させない)。 */
+  const jpHolidayMap = useMemo(() => getHolidaysForMonth(yr, mo), [yr, mo]);
 
   /* ── 日付リスト ── */
   const allDays = useMemo(() => {
@@ -553,11 +557,13 @@ export default function AttendanceTab({ employee }: { employee: any }) {
             </thead>
             <tbody>
               {allDays.map(row => {
-                const dc = row.dow === 0 ? T.holidayRed : row.dow === 6 ? T.yukyuBlue : T.text;
+                const jpHolName = jpHolidayMap[row.dateStr] || "";
+                const kind = dayColorKind(row.dow, !!jpHolName);
+                const dc = kind === "sun_or_holiday" ? T.holidayRed : kind === "sat" ? T.yukyuBlue : T.text;
                 return (
                   <tr key={row.day} style={{ backgroundColor: row.off ? "#FFF8F8" : "#fff", borderBottom: `1px solid ${T.borderLight}` }}>
                     <td style={{ padding: "7px 4px", textAlign: "center", fontWeight: 600, color: dc, width: isAkashiPart ? 36 : 24 }}>{isAkashiPart ? `${parseInt(row.dateStr.slice(5, 7))}/${row.day}` : row.day}</td>
-                    <td style={{ padding: "7px 4px", textAlign: "center", color: dc, width: 20 }}>{DOW[row.dow]}</td>
+                    <td style={{ padding: "7px 4px", textAlign: "center", color: dc, width: 20 }} title={jpHolName || undefined}>{DOW[row.dow]}{jpHolName && <div style={{ fontSize: 9, color: T.holidayRed, fontWeight: 500, lineHeight: "10px", marginTop: 1, whiteSpace: "nowrap" }}>{jpHolName}</div>}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.pi ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px", color: T.text, width: 44 }}>{row.po ?? <span style={{ color: T.textPH }}>—</span>}</td>
                     <td style={{ padding: "7px 4px" }}>{row.approved && row.reason && row.reason.includes("有給") ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#D1FAE5", color: "#065F46" }}>有給承認済</span> : row.pending && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#DBEAFE", color: "#1D4ED8" }}>有給申請中</span> : row.rejected && !row.reason ? <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, backgroundColor: "#FEE2E2", color: "#991B1B" }}>有給却下</span> : <ReasonBadges reason={displayReason(row.reason, empShiftType) ?? (row.off ? "定休日" : null)} />}</td>

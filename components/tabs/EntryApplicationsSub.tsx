@@ -1,8 +1,9 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { T } from "@/lib/constants";
 import Dialog from "@/components/ui/Dialog";
 import { supabase } from "@/lib/supabase";
+import { useLiveList } from "@/lib/useLiveList";
 import { AKASHI_HOLIDAY_CALENDARS, labelOfHolidayCalendar } from "@/lib/akashiOptions";
 
 interface EntryApp {
@@ -88,7 +89,17 @@ export default function EntryApplicationsSub({ employee }: { employee: any }) {
     setLoading(false);
   }, [companyId]);
 
-  useEffect(() => { fetchApps(); }, [fetchApps]);
+  // Realtime 購読と fetch を useLiveList に集約。
+  // マウント時 / バックグラウンド復帰 / Realtime 再接続 / entry_applications の変更で fetchApps を呼び直す。
+  useLiveList({
+    channel: `entry-apps-${companyId ?? "none"}`,
+    subscriptions: companyId
+      ? [{ table: "entry_applications", filter: `company_id=eq.${companyId}`, event: "*" }]
+      : [],
+    fetch: () => fetchApps(),
+    deps: [companyId],
+    enabled: !!companyId,
+  });
 
   const createEmployee = async (app: EntryApp): Promise<{ empId: string | null; error: string | null }> => {
     const code = normalizeEmployeeCode(app.employee_code);

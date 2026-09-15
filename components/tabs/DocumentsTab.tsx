@@ -2,10 +2,11 @@
 // ═══════════════════════════════════════════
 // components/tabs/DocumentsTab.tsx — 書類タブ（Supabase接続済み）
 // ═══════════════════════════════════════════
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { T } from "@/lib/constants";
 import { Badge } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
+import { useLiveList } from "@/lib/useLiveList";
 
 interface DocRecord {
   id: string;
@@ -38,7 +39,17 @@ export default function DocumentsTab({ employee }: { employee: any }) {
     setLoading(false);
   }, [employee?.id, employee?.company_id]);
 
-  useEffect(() => { fetchDocs(); }, [fetchDocs]);
+  // Realtime 購読と fetch を useLiveList に集約。
+  // マウント時 / バックグラウンド復帰 / Realtime 再接続 / documents の変更で fetchDocs を呼び直す。
+  useLiveList({
+    channel: `docs-${employee?.company_id ?? "none"}-${employee?.id ?? "none"}`,
+    subscriptions: employee?.company_id
+      ? [{ table: "documents", filter: `company_id=eq.${employee.company_id}`, event: "*" }]
+      : [],
+    fetch: () => fetchDocs(),
+    deps: [employee?.company_id, employee?.id],
+    enabled: !!(employee?.company_id && employee?.id),
+  });
 
   // DLボタン押下 → 端末にダウンロード保存 + confirmed_atを更新
   const handleDownload = async (doc: DocRecord) => {

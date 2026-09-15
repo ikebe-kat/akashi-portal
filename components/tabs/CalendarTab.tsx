@@ -5,6 +5,8 @@
 // ═══════════════════════════════════════════
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { T, DOW, PALETTE, stepMonth, displayReason, calendarDisplayName, AKASHI_COMPANY_ID } from "@/lib/constants";
+import { getHolidaysForMonth, dayColorKind } from "@/lib/jpHolidays";
+import { useLiveList } from "@/lib/useLiveList";
 import { fetchCalGroups, calGroupLabel, type CalGroup } from "@/lib/calendarGroups";
 import { fetchLeaveDays, leaveKey } from "@/lib/employmentRpc";
 import { useSmoothSwipe } from "@/hooks/useSmoothSwipe";
@@ -620,7 +622,25 @@ export default function CalendarTab({ employee }: { employee: any }) {
     setLoading(false);
   }, [yr, mo, employee?.company_id]);
 
+  // yr/mo 変更時は従来通り fetchData を実行。company_id 起因の初回・再購読は useLiveList 側で行う。
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // custom_events / attendance_daily の Realtime 購読とそれに紐づく再取得を useLiveList に集約。
+  // マウント時 / バックグラウンド復帰 (visibilitychange) / Realtime 再接続 (SUBSCRIBED) で fetchData を呼び直す。
+  useLiveList({
+    channel: `cal_${employee?.company_id ?? "none"}`,
+    subscriptions: employee?.company_id
+      ? [
+          { table: "custom_events",    filter: `company_id=eq.${employee.company_id}`, event: "*" },
+          { table: "attendance_daily", filter: `company_id=eq.${employee.company_id}`, event: "INSERT" },
+          { table: "attendance_daily", filter: `company_id=eq.${employee.company_id}`, event: "UPDATE" },
+          { table: "attendance_daily", filter: `company_id=eq.${employee.company_id}`, event: "DELETE" },
+        ]
+      : [],
+    fetch: () => fetchData(),
+    deps: [employee?.company_id],
+    enabled: !!employee?.company_id,
+  });
 
   // ── 月送り ──────────────────────────────
   const go = useCallback((dir: 1 | -1) => {
@@ -629,6 +649,9 @@ export default function CalendarTab({ employee }: { employee: any }) {
   }, [yr, mo]);
 
   const swipeRef = useSmoothSwipe(go);
+
+  /* 日本の祝日 (色・祝日名表示にのみ使う。件数・集計・申請ロジックには影響させない)。 */
+  const jpHolidayMap = useMemo(() => getHolidaysForMonth(yr, mo), [yr, mo]);
 
   // ── カレンダーグリッド生成 ──────────────────
   const cells = useMemo(() => {
@@ -724,7 +747,21 @@ export default function CalendarTab({ employee }: { employee: any }) {
       <>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
-            {mo}月{selDay}日（{DOW[new Date(yr, mo - 1, selDay).getDay()]}）
+            {(() => {
+              const dow = new Date(yr, mo - 1, selDay).getDay();
+              const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(selDay).padStart(2, "0")}`;
+              const selJpHolidayName = jpHolidayMap[dateStr] || "";
+              const kind = dayColorKind(dow, !!selJpHolidayName);
+              const headColor = kind === "sun_or_holiday" ? T.holidayRed : kind === "sat" ? T.yukyuBlue : T.text;
+              return (
+                <>
+                  <span style={{ color: headColor }}>{mo}月{selDay}日（{DOW[dow]}）</span>
+                  {selJpHolidayName && (
+                    <span style={{ fontSize: 12, color: T.holidayRed, fontWeight: 500, marginLeft: 6 }}>{selJpHolidayName}</span>
+                  )}
+                </>
+              );
+            })()}
             <span style={{ fontSize: 12, color: T.textSec, fontWeight: 400, marginLeft: 6 }}>{selTotal}件</span>
           </div>
           <button onClick={() => setModal(true)} style={{ width: 26, height: 26, border: "none", backgroundColor: T.primary, borderRadius: "50%", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button><button onClick={() => setSelDay(null)} style={{ width: 26, height: 26, border: "none", backgroundColor: T.bg, borderRadius: "50%", color: T.textSec, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", marginLeft: 4 }}>×</button>
@@ -841,6 +878,15 @@ export default function CalendarTab({ employee }: { employee: any }) {
               const isSel = selDay === c.day && c.cur;
               const isTod = c.cur && isToday(c.day);
               const totalItems = at.length + ev.length;
+              const cellDateStr = c.cur ? `${yr}-${String(mo).padStart(2, "0")}-${String(c.day).padStart(2, "0")}` : "";
+              const jpHolName = c.cur ? (jpHolidayMap[cellDateStr] || "") : "";
+              // 土日祝の色判定は lib/jpHolidays.ts dayColorKind に一本化。
+              const kind = c.cur ? dayColorKind(dow, !!jpHolName) : "weekday";
+              const numberColor = !c.cur
+                ? T.textMuted
+                : kind === "sun_or_holiday" ? T.holidayRed
+                : kind === "sat"            ? T.yukyuBlue
+                                            : T.text;
 
               return (
                 <div key={idx}
@@ -861,8 +907,19 @@ export default function CalendarTab({ employee }: { employee: any }) {
                     fontSize: isMobile ? 12 : 14,
                     fontWeight: 700,
                     marginBottom: 6,
-                    color: !c.cur ? T.textMuted : dow === 0 ? T.holidayRed : dow === 6 ? T.yukyuBlue : T.text,
-                  }}>{c.day}</div>
+                    color: numberColor,
+                    display: "flex", alignItems: "baseline", gap: 4, minWidth: 0,
+                  }}>
+                    <span>{c.day}</span>
+                    {jpHolName && (
+                      <span style={{
+                        fontSize: isMobile ? 9 : 10, fontWeight: 500,
+                        color: T.holidayRed,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        minWidth: 0,
+                      }}>{jpHolName}</span>
+                    )}
+                  </div>
 
                   {/* バッジエリア */}
                   {c.cur && (
